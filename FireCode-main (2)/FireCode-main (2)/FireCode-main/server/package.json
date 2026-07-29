@@ -1,0 +1,49 @@
+{
+    "name": "server",
+    "version": "1.0.0",
+    "description": "",
+    "main": "server.js",
+    "scripts": {
+        "start": "npm run build && node ./dist/server.js",
+        "dev": "nodemon --watch . --ignore node_modules --ignore dist --ignore logs --ignore '*.log' --ext ts --exec ts-node server.ts",
+        "test": "cross-env NODE_ENV=test npm run build && node --test --test-concurrency=1 dist/tests/admin-auth.test.js dist/tests/auth.test.js dist/tests/contest-leaderboard.test.js dist/tests/observability.test.js dist/tests/problem.test.js dist/tests/rate-limiter.test.js",
+        "build": "tsc"
+    },
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/adm-zip": "^0.5.8",
+        "@types/bad-words": "^3.0.1",
+        "@types/bcrypt": "^5.0.0",
+        "@types/compression": "^1.8.1",
+        "@types/cors": "^2.8.13",
+        "@types/express": "^4.17.17",
+        "@types/jsonwebtoken": "^9.0.2",
+        "@types/mongoose": "^5.11.97",
+        "@types/node": "^20.4.4",
+        "acorn": "^8.10.0",
+        "cross-env": "^7.0.3",
+        "nodemon": "^3.1.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.1.6"
+    },
+    "dependencies": {
+        "adm-zip": "^0.6.0",
+        "axios": "^1.18.1",
+        "bad-words": "^3.0.4",
+        "bcrypt": "^5.1.0",
+        "bullmq": "^5.80.10",
+        "compression": "^1.8.1",
+        "cors": "^2.8.5",
+        "dotenv": "^16.3.1",
+        "express": "^4.18.2",
+        "ioredis": "^5.11.1",
+        "jsonwebtoken": "^9.0.1",
+        "mongodb": "^5.7.0",
+        "mongoose": "^7.4.2",
+        "redis": "^6.1.0"
+    },
+    "prettier": {
+        "tabWidth": 4
+    }
+}
