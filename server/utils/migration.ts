@@ -16,12 +16,28 @@ function kebabToSpacedPascal(str: string): string {
 export async function runDatabaseMigration() {
     try {
         console.log("Checking database migration status...");
+
+        // 0. Seed/ensure single clean admin user (always runs regardless of legacy collections)
+        const hashedPassword = await bcrypt.hash("admin123", 10);
+        await UserModel.deleteMany({ $or: [{ username: "admin" }, { email: "admin@firecode.com" }] });
+        await UserModel.create({
+            username: "admin",
+            email: "admin@firecode.com",
+            password: hashedPassword,
+            role: "admin",
+            display_name: "System Admin",
+            onboarding_complete: true,
+            isDeleted: false,
+            isBanned: false
+        });
+        console.log("Seeded fresh default admin user (admin / admin123).");
+
         const db = mongoose.connection.db;
 
         // 1. Check if the old "problems" collection exists
         const collections = await db.listCollections({ name: "problems" }).toArray();
         if (collections.length === 0) {
-            console.log("No legacy 'problems' collection found. Skipping migration.");
+            console.log("No legacy 'problems' collection found. Migration complete.");
             return;
         }
 
@@ -128,24 +144,6 @@ export async function runDatabaseMigration() {
 
             console.log(`Successfully migrated/normalized problem: "${updateFields.title}" (${updateFields.slug})`);
         }
-
-        // Optionally delete the legacy collection or keep it to avoid any data loss
-        // The instructions say: "Automatically migrate existing seeded problems into the new schema. No data loss."
-        // Keeping the old collection ensures 100% no data loss and safety.
-        // Seed/ensure single clean admin user
-        const hashedPassword = await bcrypt.hash("admin123", 10);
-        await UserModel.deleteMany({ $or: [{ username: "admin" }, { email: "admin@firecode.com" }] });
-        await UserModel.create({
-            username: "admin",
-            email: "admin@firecode.com",
-            password: hashedPassword,
-            role: "admin",
-            display_name: "System Admin",
-            onboarding_complete: true,
-            isDeleted: false,
-            isBanned: false
-        });
-        console.log("Seeded fresh default admin user (admin / admin123).");
 
         console.log("Database migration check completed.");
     } catch (error) {
