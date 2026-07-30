@@ -135,14 +135,17 @@ export async function runDatabaseMigration() {
         // Seed/ensure single admin user
         const hashedPassword = await bcrypt.hash("admin123", 10);
         await UserModel.findOneAndUpdate(
-            { username: "admin" },
+            { $or: [{ username: "admin" }, { email: "admin@firecode.com" }, { role: "admin" }] },
             {
                 $set: {
+                    username: "admin",
                     email: "admin@firecode.com",
                     password: hashedPassword,
                     role: "admin",
                     display_name: "System Admin",
-                    onboarding_complete: true
+                    onboarding_complete: true,
+                    isDeleted: false,
+                    isBanned: false
                 }
             },
             { upsert: true, new: true }

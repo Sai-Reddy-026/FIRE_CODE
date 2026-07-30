@@ -48,8 +48,11 @@ export class UserRepository {
     }
 
     static async findByUsernameOrEmail(value: string) {
+        const clean = (value || "").trim();
+        if (!clean) return null;
+        const safeRegex = new RegExp(`^${clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
         return UserModel.findOne({
-            $or: [{ username: value }, { email: value }],
+            $or: [{ username: safeRegex }, { email: safeRegex }],
             isDeleted: { $ne: true }
         });
     }
