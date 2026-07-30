@@ -32,7 +32,10 @@ function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:80/api";
+  const apiBaseUrl =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:80/api";
 
   useEffect(() => {
     if (user) {

@@ -117,7 +117,15 @@ export function logout(): void {
   // window.__VITE_API_BASE_URL__ (undefined at runtime, causing logout to always
   // call the hardcoded localhost URL regardless of environment).
   if (token) {
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:80/api";
+    const rawUrl =
+      import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_API_URL ||
+      "http://localhost:80/api";
+    let formattedUrl = rawUrl.trim().replace(/\/+$/, "");
+    if (!formattedUrl.endsWith("/api")) {
+      formattedUrl = `${formattedUrl}/api`;
+    }
+    const BASE_URL = formattedUrl;
 
     // Fire-and-forget: best-effort server-side session invalidation
     // Network errors are intentionally swallowed — local logout always succeeds

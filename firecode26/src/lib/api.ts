@@ -4,7 +4,19 @@
  * Auth: Bearer JWT from localStorage (set by auth.ts helpers)
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:80/api";
+function getBaseUrl(): string {
+  const envUrl =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:80/api";
+  let url = envUrl.trim().replace(/\/+$/, "");
+  if (!url.endsWith("/api")) {
+    url = `${url}/api`;
+  }
+  return url;
+}
+
+const BASE_URL = getBaseUrl();
 
 export class ApiError extends Error {
   status: number;
