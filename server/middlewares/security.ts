@@ -335,10 +335,23 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
     const origin  = req.headers.origin;
     const referer = req.headers.referer;
 
-    if (origin && !ALLOWED_ORIGINS.some((o) => origin.startsWith(o))) {
+    const isOriginAllowed =
+        !origin ||
+        origin.endsWith(".vercel.app") ||
+        origin.endsWith(".onrender.com") ||
+        ALLOWED_ORIGINS.some((o) => origin.startsWith(o));
+
+    if (origin && !isOriginAllowed) {
         return res.status(403).json({ success: false, message: "CSRF Blocked: Invalid Origin" });
     }
-    if (referer && !ALLOWED_ORIGINS.some((o) => referer.startsWith(o))) {
+
+    const isRefererAllowed =
+        !referer ||
+        referer.includes(".vercel.app") ||
+        referer.includes(".onrender.com") ||
+        ALLOWED_ORIGINS.some((o) => referer.startsWith(o));
+
+    if (referer && !isRefererAllowed) {
         return res.status(403).json({ success: false, message: "CSRF Blocked: Invalid Referer" });
     }
     next();

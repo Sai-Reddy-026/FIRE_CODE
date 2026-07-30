@@ -14,12 +14,18 @@ import { ALLOWED_ORIGINS } from "./security";
 export function customCors(req: Request, res: Response, next: NextFunction) {
     const origin = req.headers.origin;
 
-    if (origin && ALLOWED_ORIGINS.some((o) => origin.startsWith(o))) {
+    const isAllowed =
+        !origin ||
+        origin.endsWith(".vercel.app") ||
+        origin.endsWith(".onrender.com") ||
+        ALLOWED_ORIGINS.some((o) => origin.startsWith(o));
+
+    if (origin && isAllowed) {
         // Reflect the exact origin back so credentials work
         res.setHeader("Access-Control-Allow-Origin", origin);
     } else if (!origin) {
-        // Non-browser client (Postman, curl, server-to-server) — allow localhost
-        res.setHeader("Access-Control-Allow-Origin", "http://localhost");
+        // Non-browser client (Postman, curl, server-to-server)
+        res.setHeader("Access-Control-Allow-Origin", "*");
     }
     // If origin is set but not in whitelist, no Allow-Origin header is set — browser blocks it
 
