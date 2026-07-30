@@ -2,6 +2,7 @@ import axios from "axios";
 import vm from "vm";
 import { IProblem } from "../models/problem.model";
 import { ITestCase } from "../models/testcase.model";
+import { logger } from "./logger";
 
 export interface TestCaseExecutionResult {
     testCaseId: string;
@@ -22,7 +23,7 @@ export interface JudgeReport {
     results: TestCaseExecutionResult[];
 }
 
-const rawJudge0Url = process.env.JUDGE0_URL || "https://limitations-str-licence-louisville.trycloudflare.com";
+const rawJudge0Url = process.env.JUDGE0_URL || (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:2358");
 const JUDGE0_URL = rawJudge0Url.replace(/\/$/, "");
 
 export function formatNormalizedInput(rawInput: string): string {
@@ -910,20 +911,16 @@ async function executeSingleTestCase(
         return result;
     } catch (e: any) {
         const msg = e?.response?.data?.message || e?.message || String(e);
-        console.warn(`[Judge0 Sandbox Fallback] Judge0 service unavailable (${msg}). Attempting local sandbox execution.`);
-        
-        try {
-            return executeLocalFallback(userCode, problem, testCase, language);
-        } catch (fallbackErr: any) {
-            return {
-                testCaseId: testCase._id ? testCase._id.toString() : String(testCase.executionOrder),
-                isHidden: testCase.isHidden,
-                status: "Runtime Error",
-                runtime: 0,
-                memory: 0,
-                error_message: `Execution failed: ${msg}`,
-            };
-        }
+        logger.error(`[Judge0 Error] Service execution failed: ${msg}`, { problemId: problem._id, testCaseId: testCase._id });
+
+        return {
+            testCaseId: testCase._id ? testCase._id.toString() : String(testCase.executionOrder),
+            isHidden: testCase.isHidden,
+            status: "Runtime Error",
+            runtime: 0,
+            memory: 0,
+            error_message: `Judge0 execution service unavailable: ${msg}`,
+        };
     }
 }
 
