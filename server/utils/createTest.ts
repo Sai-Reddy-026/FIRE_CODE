@@ -22,7 +22,8 @@ export interface JudgeReport {
     results: TestCaseExecutionResult[];
 }
 
-const JUDGE0_URL = process.env.JUDGE0_URL || "http://localhost:2358";
+const rawJudge0Url = process.env.JUDGE0_URL || "https://limitations-str-licence-louisville.trycloudflare.com";
+const JUDGE0_URL = rawJudge0Url.replace(/\/$/, "");
 
 function parseInputArgs(rawInput: string): any[] {
     const trimmed = (rawInput || "").trim();
