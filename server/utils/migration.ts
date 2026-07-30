@@ -132,21 +132,22 @@ export async function runDatabaseMigration() {
         // Optionally delete the legacy collection or keep it to avoid any data loss
         // The instructions say: "Automatically migrate existing seeded problems into the new schema. No data loss."
         // Keeping the old collection ensures 100% no data loss and safety.
-        // Seed single admin user
-        const existingAdmin = await UserModel.findOne({ role: "admin" });
-        if (!existingAdmin) {
-            const hashedPassword = await bcrypt.hash("adminPassword123", 10);
-            await UserModel.create({
-                username: "admin",
-                email: "admin@firecode.com",
-                password: hashedPassword,
-                role: "admin",
-                display_name: "System Admin",
-                onboarding_complete: true
-            });
-            // CRITICAL FIX: Never log credentials to console (visible in server logs)
-            console.log("Seeded default admin user. Check your .env or source for the seed password.");
-        }
+        // Seed/ensure single admin user
+        const hashedPassword = await bcrypt.hash("admin123", 10);
+        await UserModel.findOneAndUpdate(
+            { username: "admin" },
+            {
+                $set: {
+                    email: "admin@firecode.com",
+                    password: hashedPassword,
+                    role: "admin",
+                    display_name: "System Admin",
+                    onboarding_complete: true
+                }
+            },
+            { upsert: true, new: true }
+        );
+        console.log("Seeded/verified default admin user (admin / admin123).");
 
         console.log("Database migration check completed.");
     } catch (error) {
