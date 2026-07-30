@@ -211,16 +211,16 @@ function ProblemDetail() {
 
   const DEFAULT_STARTER_TEMPLATES: Record<string, string> = useMemo(
     () => ({
-      javascript: "// Write your solution here\nfunction solution(s) {\n    \n}\n",
-      typescript: "// Write your solution here\nfunction solution(s: string): number {\n    \n}\n",
-      python: "# Write your solution here\ndef solution(s: str) -> int:\n    pass\n",
-      cpp: "// Write your solution here\n#include <iostream>\n#include <string>\nusing namespace std;\n\nint solution(string s) {\n    return 0;\n}\n",
-      c: "// Write your solution here\n#include <stdio.h>\n\nint solution(char* s) {\n    return 0;\n}\n",
-      java: "// Write your solution here\npublic class Solution {\n    public int solution(String s) {\n        return 0;\n    }\n}\n",
-      go: "// Write your solution here\npackage main\n\nfunc solution(s string) int {\n    return 0;\n}\n",
-      rust: "// Write your solution here\nfn solution(s: String) -> i32 {\n    0\n}\n",
-      csharp: "// Write your solution here\nusing System;\n\npublic class Solution {\n    public int SolutionMethod(string s) {\n        return 0;\n    }\n}\n",
-      kotlin: "// Write your solution here\nfun solution(s: String): Int {\n    return 0\n}\n",
+      javascript: "// Write your solution here\nfunction solution(nums, target) {\n    return [];\n}\n",
+      typescript: "// Write your solution here\nfunction solution(nums: number[], target: number): number[] {\n    return [];\n}\n",
+      python: "# Write your solution here\ndef solution(nums: list[int], target: int) -> list[int]:\n    return []\n",
+      cpp: "// Write your solution here\n#include <iostream>\n#include <vector>\n#include <unordered_map>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\nvector<int> solution(vector<int>& nums, int target) {\n    unordered_map<int, int> mp;\n    for (int i = 0; i < nums.size(); i++) {\n        int complement = target - nums[i];\n        if (mp.find(complement) != mp.end()) {\n            return {mp[complement], i};\n        }\n        mp[nums[i]] = i;\n    }\n    return {};\n}\n",
+      c: "// Write your solution here\n#include <stdio.h>\n#include <stdlib.h>\n\nint* solution(int* nums, int numsSize, int target, int* returnSize) {\n    *returnSize = 0;\n    return NULL;\n}\n",
+      java: "// Write your solution here\nimport java.util.*;\n\npublic class Solution {\n    public int[] solution(int[] nums, int target) {\n        Map<Integer, Integer> map = new HashMap<>();\n        for (int i = 0; i < nums.length; i++) {\n            int complement = target - nums[i];\n            if (map.containsKey(complement)) {\n                return new int[] { map.get(complement), i };\n            }\n            map.put(nums[i], i);\n        }\n        return new int[]{};\n    }\n}\n",
+      go: "// Write your solution here\npackage main\n\nfunc solution(nums []int, target int) []int {\n    return []int{}\n}\n",
+      rust: "// Write your solution here\nfn solution(nums: Vec<i32>, target: i32) -> Vec<i32> {\n    vec![]\n}\n",
+      csharp: "// Write your solution here\nusing System;\nusing System.Collections.Generic;\n\npublic class Solution {\n    public int[] SolutionMethod(int[] nums, int target) {\n        return new int[]{};\n    }\n}\n",
+      kotlin: "// Write your solution here\nfun solution(nums: IntArray, target: Int): IntArray {\n    return intArrayOf()\n}\n",
     }),
     [],
   );
