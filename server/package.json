@@ -7,7 +7,8 @@
         "start": "npm run build && node ./dist/server.js",
         "dev": "nodemon --watch . --ignore node_modules --ignore dist --ignore logs --ignore '*.log' --ext ts --exec ts-node server.ts",
         "test": "cross-env NODE_ENV=test npm run build && node --test --test-concurrency=1 dist/tests/admin-auth.test.js dist/tests/auth.test.js dist/tests/contest-leaderboard.test.js dist/tests/observability.test.js dist/tests/problem.test.js dist/tests/rate-limiter.test.js",
-        "build": "tsc"
+        "build": "node --max-old-space-size=460 ./node_modules/typescript/bin/tsc",
+        "render-build": "npm install && npm run build"
     },
     "author": "",
     "license": "ISC",
