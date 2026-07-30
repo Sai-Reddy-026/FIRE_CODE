@@ -25,43 +25,52 @@ export interface JudgeReport {
 const rawJudge0Url = process.env.JUDGE0_URL || "https://limitations-str-licence-louisville.trycloudflare.com";
 const JUDGE0_URL = rawJudge0Url.replace(/\/$/, "");
 
-function formatNormalizedInput(rawInput: string): string {
+export function formatNormalizedInput(rawInput: string): string {
     if (!rawInput) return "";
     const cleanInput = rawInput.trim();
 
-    // Extract numbers and arrays from input string like "nums = [2, 7, 11, 15]\ntarget = 9"
-    const arrayMatch = cleanInput.match(/\[([\s\S]*?)\]/);
+    // 1. Try parsing JSON array directly, e.g. [[2,7,11,15], 9] or [ [3,2,4], 6 ]
+    try {
+        const parsed = JSON.parse(cleanInput);
+        if (Array.isArray(parsed) && parsed.length >= 2) {
+            let arr: number[] = [];
+            let target: number | null = null;
+            if (Array.isArray(parsed[0])) {
+                arr = parsed[0].map(Number);
+                target = Number(parsed[1]);
+            } else if (typeof parsed[parsed.length - 1] === "number") {
+                target = Number(parsed[parsed.length - 1]);
+                arr = parsed.slice(0, parsed.length - 1).map(Number);
+            }
+            if (arr.length > 0 && target !== null && !isNaN(target)) {
+                return `${arr.length}\n${arr.join(" ")}\n${target}\n${cleanInput}`;
+            }
+        }
+    } catch {
+        // Not JSON
+    }
 
+    // 2. Regex fallback for "nums = [2, 7, 11, 15]\ntarget = 9"
+    const arrayMatch = cleanInput.match(/\[([\s\S]*?)\]/);
     if (arrayMatch) {
         const arrStr = arrayMatch[1];
         const arrTokens = arrStr.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
         const parsedArray: number[] = [];
         for (const t of arrTokens) {
             const num = Number(t);
-            if (!isNaN(num)) parsedArray.push(num);
+            if (t !== "" && !isNaN(num)) parsedArray.push(num);
         }
 
-        // Find scalar values outside the brackets (e.g. target = 9)
         const outsideStr = cleanInput.replace(arrayMatch[0], "");
-        const outsideTokens = outsideStr.split(/[\s=,]+/).map(s => s.trim()).filter(Boolean);
+        const outsideTokens = outsideStr.split(/[\s=,\[\]]+/).map(s => s.trim()).filter(Boolean);
         const outsideNums: number[] = [];
         for (const t of outsideTokens) {
             const num = Number(t);
-            if (!isNaN(num)) outsideNums.push(num);
+            if (t !== "" && !isNaN(num)) outsideNums.push(num);
         }
 
-        if (parsedArray.length > 0) {
-            // Header line 1: size N
-            // Line 2: array elements space-separated
-            // Line 3+: outside scalars (e.g. target)
-            // Line 4+: raw cleanInput for string parsers
-            const normalizedLines = [
-                String(parsedArray.length),
-                parsedArray.join(" "),
-                ...outsideNums.map(String),
-                cleanInput
-            ];
-            return normalizedLines.join("\n");
+        if (parsedArray.length > 0 && outsideNums.length > 0) {
+            return `${parsedArray.length}\n${parsedArray.join(" ")}\n${outsideNums.join("\n")}\n${cleanInput}`;
         }
     }
 
