@@ -224,7 +224,55 @@ export class UserService {
         if (id !== requestUserId) {
             throw new ForbiddenError("You cannot modify other user profiles.");
         }
-        const updated = await UserRepository.update(id, updateData);
+
+        // SECURITY: Strict whitelist — only these fields may be set by the user.
+        // Prevents privilege escalation via role:"admin", isBanned:false, etc.
+        const ALLOWED_PROFILE_FIELDS = [
+            "display_name", "first_name", "last_name",
+            "bio", "about_me", "location", "city", "country",
+            "company", "college", "branch", "year",
+            "website", "github", "linkedin", "twitter",
+            "codeforces", "leetcode", "codechef", "hackerrank",
+            "avatar_url", "banner_url",
+            "skills", "languages",
+            "preferred_language", "theme",
+            "profile_visibility",
+            "education",
+        ];
+
+        const sanitized: Record<string, any> = {};
+        for (const field of ALLOWED_PROFILE_FIELDS) {
+            if (field in updateData) {
+                sanitized[field] = updateData[field];
+            }
+        }
+
+        if (Object.keys(sanitized).length === 0) {
+            throw new BadRequestError("No valid profile fields provided.");
+        }
+
+        // Validate string field lengths to prevent DB bloat / injection
+        const STRING_LIMITS: Record<string, number> = {
+            display_name: 60, first_name: 50, last_name: 50,
+            bio: 500, about_me: 2000, location: 100, city: 100, country: 100,
+            company: 100, college: 200, branch: 100, year: 20,
+            website: 255, github: 100, linkedin: 255, twitter: 100,
+            codeforces: 100, leetcode: 100, codechef: 100, hackerrank: 100,
+            avatar_url: 1000, banner_url: 1000, preferred_language: 50, theme: 20,
+        };
+        for (const [k, maxLen] of Object.entries(STRING_LIMITS)) {
+            if (sanitized[k] !== undefined && typeof sanitized[k] === "string" && sanitized[k].length > maxLen) {
+                throw new BadRequestError(`Field '${k}' exceeds maximum length of ${maxLen} characters.`);
+            }
+        }
+
+        // Validate skills array
+        if (sanitized.skills !== undefined) {
+            if (!Array.isArray(sanitized.skills)) throw new BadRequestError("skills must be an array.");
+            if (sanitized.skills.length > 30) throw new BadRequestError("Maximum 30 skills allowed.");
+        }
+
+        const updated = await UserRepository.update(id, sanitized);
         if (!updated) {
             throw new NotFoundError("User not found");
         }
@@ -232,6 +280,7 @@ export class UserService {
         await cacheService.del("admin:dashboard:stats");
         return updated;
     }
+
 
     static async deleteUser(id: string, requestUserId: string) {
         if (id !== requestUserId) {

@@ -112,4 +112,11 @@ export class ProblemController {
         const result = await ProblemService.getAdjacent(name);
         res.status(200).json(result);
     }
+
+    static async getUserSubmissions(req: AuthRequest, res: Response): Promise<void> {
+        const id = req.authUser?.id || "";
+        const limit = Number(req.query.limit) || 10;
+        const result = await ProblemService.getUserSubmissions(id, limit);
+        res.status(200).json(result);
+    }
 }

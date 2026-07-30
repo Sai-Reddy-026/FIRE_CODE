@@ -35,17 +35,30 @@ export interface DUser extends Document {
 
     // Extended profile
     display_name: string;
+    first_name: string;
+    last_name: string;
     bio: string;
+    about_me: string;
     location: string;
+    city: string;
     company: string;
+    college: string;
+    branch: string;
+    year: string;
     website: string;
     github: string;
     linkedin: string;
     twitter: string;
+    codeforces: string;
+    leetcode: string;
+    codechef: string;
+    hackerrank: string;
     country: string;
     avatar_url: string;
+    banner_url: string;
     skills: string[];
     languages: string[];
+    profile_visibility: "public" | "private";
     education: {
         school: string;
         degree: string;
@@ -114,17 +127,30 @@ const userSchema = new mongoose.Schema<DUser>({
 
     // Extended profile fields
     display_name:          { type: String, default: "" },
+    first_name:            { type: String, default: "" },
+    last_name:             { type: String, default: "" },
     bio:                   { type: String, default: "" },
+    about_me:              { type: String, default: "" },
     location:              { type: String, default: "" },
+    city:                  { type: String, default: "" },
     company:               { type: String, default: "" },
+    college:               { type: String, default: "" },
+    branch:                { type: String, default: "" },
+    year:                  { type: String, default: "" },
     website:               { type: String, default: "" },
     github:                { type: String, default: "" },
     linkedin:              { type: String, default: "" },
     twitter:               { type: String, default: "" },
+    codeforces:            { type: String, default: "" },
+    leetcode:              { type: String, default: "" },
+    codechef:              { type: String, default: "" },
+    hackerrank:            { type: String, default: "" },
     country:               { type: String, default: "" },
     avatar_url:            { type: String, default: "" },
+    banner_url:            { type: String, default: "" },
     skills:                { type: [String], default: [] },
     languages:             { type: [String], default: [] },
+    profile_visibility:    { type: String, enum: ["public", "private"], default: "public" },
     education: {
         school:          { type: String, default: "" },
         degree:          { type: String, default: "" },

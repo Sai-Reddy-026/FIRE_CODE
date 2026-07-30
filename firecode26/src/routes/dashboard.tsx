@@ -58,6 +58,16 @@ interface UserProfile {
   total_points_earned?: number;
 }
 
+interface RecentSubmissionItem {
+  _id: string;
+  problemTitle?: string;
+  problemSlug?: string;
+  status: string;
+  language: string;
+  submittedAt: string;
+  runtime?: number;
+}
+
 function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -69,6 +79,13 @@ function DashboardPage() {
   }, [navigate]);
 
   const userId = user?.id ?? "";
+
+  const { data: recentSubmissions } = useQuery<RecentSubmissionItem[]>({
+    queryKey: ["submissions", "recent", userId],
+    queryFn: () => api.get<RecentSubmissionItem[]>("/problem/user/submissions?limit=5"),
+    enabled: !!userId,
+    staleTime: 60 * 1000,
+  });
 
   const { data: activity } = useQuery<ActivityData>({
     queryKey: ["activity", userId],
@@ -119,7 +136,11 @@ function DashboardPage() {
         <div>
           <p className="text-sm text-muted-foreground">Welcome back</p>
           <h1 className="font-display text-3xl font-bold tracking-tight">
-            Good evening, <span className="ember-text">{user?.username ?? "…"}</span>
+            {(() => {
+              const h = new Date().getHours();
+              return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+            })()},{" "}
+            <span className="ember-text">{user?.username ?? "…"}</span>
           </h1>
         </div>
         <Link to="/problems">
@@ -198,9 +219,38 @@ function DashboardPage() {
           </Link>
         </div>
         <div className="divide-y divide-border/60">
-          <div className="p-5 text-sm text-muted-foreground">
-            No submissions yet. Start solving!
-          </div>
+          {recentSubmissions && recentSubmissions.length > 0 ? (
+            recentSubmissions.map((s) => (
+              <div key={s._id} className="flex items-center justify-between p-4 text-sm">
+                <div>
+                  <Link
+                    to="/problems/$id"
+                    params={{ id: s.problemSlug || "1" }}
+                    className="font-medium hover:underline"
+                  >
+                    {s.problemTitle || s.problemSlug || "Problem"}
+                  </Link>
+                  <div className="text-xs text-muted-foreground">
+                    {s.language} · {new Date(s.submittedAt).toLocaleDateString()}
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={
+                    s.status === "Accepted"
+                      ? "border-emerald-500/40 text-emerald-500"
+                      : "border-rose-500/40 text-rose-500"
+                  }
+                >
+                  {s.status}
+                </Badge>
+              </div>
+            ))
+          ) : (
+            <div className="p-5 text-sm text-muted-foreground">
+              No submissions yet. Start solving!
+            </div>
+          )}
         </div>
       </section>
     </AppShell>
