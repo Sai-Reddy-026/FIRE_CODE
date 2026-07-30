@@ -8,8 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
-import { useState, useEffect } from "react";
-import { EditProfileModal } from "@/components/site/EditProfileModal";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -71,9 +70,8 @@ function ProfilePage() {
 
   const { user: authUser } = useAuth();
   const userId = authUser?.id ?? "";
-  const [editModalOpen, setEditModalOpen] = useState(false);
 
-  const { data: profile, refetch: refetchProfile } = useQuery<UserProfile>({
+  const { data: profile } = useQuery<UserProfile>({
     queryKey: ["profile", userId],
     queryFn: () => api.get<UserProfile>(`/accounts/id/${userId}`),
     enabled: !!userId,
@@ -162,23 +160,12 @@ function ProfilePage() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline">Share</Button>
-            <Button
-              className="ember-gradient text-primary-foreground border-0"
-              onClick={() => setEditModalOpen(true)}
-            >
+            <Button className="ember-gradient text-primary-foreground border-0">
               Edit profile
             </Button>
           </div>
         </div>
       </div>
-
-      <EditProfileModal
-        open={editModalOpen}
-        onOpenChange={setEditModalOpen}
-        profile={profile || null}
-        userId={userId}
-        onSuccess={() => refetchProfile()}
-      />
 
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
         {stats.map((s) => (

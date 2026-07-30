@@ -10,7 +10,6 @@ const problem = express.Router();
 problem.use(authenticateToken as express.RequestHandler);
 
 problem.get("/activity/:id", asyncHandler(ProblemController.getActivity) as express.RequestHandler);
-problem.get("/user/submissions", asyncHandler(ProblemController.getUserSubmissions) as express.RequestHandler);
 problem.get("/all", asyncHandler(ProblemController.getAllProblems) as express.RequestHandler);
 problem.post("/run/:name", runCodeRateLimiter as express.RequestHandler, asyncHandler(ProblemController.runCode) as express.RequestHandler);
 problem.post("/submit/:name", submitCodeRateLimiter as express.RequestHandler, asyncHandler(ProblemController.submitCode) as express.RequestHandler);

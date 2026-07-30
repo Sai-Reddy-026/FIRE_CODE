@@ -754,8 +754,10 @@ int main() {
  * Execute Judge0 API request with retry mechanism & circuit breaker protection.
  */
 async function postJudge0WithRetry(url: string, payload: any, headers: any, retries = 2) {
+    const isDev = process.env.NODE_ENV !== "production";
+
     if (isCircuitOpen()) {
-        if (!url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
+        if (isDev && !url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
             const localUrl = url.replace(/https?:\/\/[^\/]+/, "http://127.0.0.1:2358");
             try {
                 return await axios.post(localUrl, payload, { headers, timeout: 10000 });
@@ -774,7 +776,7 @@ async function postJudge0WithRetry(url: string, payload: any, headers: any, retr
             return response;
         } catch (err: any) {
             attempt++;
-            if (!url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
+            if (isDev && !url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
                 const localUrl = url.replace(/https?:\/\/[^\/]+/, "http://127.0.0.1:2358");
                 try {
                     const localRes = await axios.post(localUrl, payload, { headers, timeout: 10000 });

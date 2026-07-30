@@ -5,10 +5,6 @@ export class SubmissionRepository {
         return SubmissionModel.find({ userId, problemSlug }).sort({ submittedAt: -1 });
     }
 
-    static async findByUser(userId: string, limit: number = 10) {
-        return SubmissionModel.find({ userId }).sort({ submittedAt: -1 }).limit(limit).lean();
-    }
-
     static async create(submissionData: any) {
         const submission = new SubmissionModel(submissionData);
         return submission.save();

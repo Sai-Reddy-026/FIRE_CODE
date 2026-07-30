@@ -362,9 +362,4 @@ export class ProblemService {
             };
         });
     }
-
-    static async getUserSubmissions(userId: string, limit: number = 10) {
-        if (!userId) return [];
-        return SubmissionRepository.findByUser(userId, limit);
-    }
 }
