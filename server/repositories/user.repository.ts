@@ -52,8 +52,7 @@ export class UserRepository {
         if (!clean) return null;
         const safeRegex = new RegExp(`^${clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
         return UserModel.findOne({
-            $or: [{ username: safeRegex }, { email: safeRegex }],
-            isDeleted: { $ne: true }
+            $or: [{ username: safeRegex }, { email: safeRegex }]
         });
     }
 
