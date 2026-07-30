@@ -1,0 +1,30 @@
+# Local Judge0 folder (untracked in application repo, managed via docker compose)
+judge0/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment Variables
+.env
+.env.local
+.env.production
+
+# Build Outputs
+dist/
+.output/
+.tanstack/
+.wrangler/
+build/
+
+# Logs & Temp files
+*.log
+logs/
+scratch/
+temp_cpp_*/
+
+# OS / Editor Metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
