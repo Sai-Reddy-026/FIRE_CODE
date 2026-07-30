@@ -265,10 +265,10 @@ export function StudentContestWorkspace() {
       }));
     } else {
       const defaultSnippets: Record<string, string> = {
-        python: `# Solution for ${activeProblemSlug}\ndef solution(nums: list[int], target: int) -> list[int]:\n    return []\n`,
-        cpp: `// Solution for ${activeProblemSlug}\n#include <iostream>\n#include <vector>\n#include <unordered_map>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\nvector<int> solution(vector<int>& nums, int target) {\n    return {};\n}\n`,
-        java: `// Solution for ${activeProblemSlug}\nimport java.util.*;\n\npublic class Solution {\n    public int[] solution(int[] nums, int target) {\n        return new int[]{};\n    }\n}\n`,
-        javascript: `// Solution for ${activeProblemSlug}\nfunction solution(nums, target) {\n    return [];\n}\n`,
+        python: `# Solution for ${activeProblemSlug}\n`,
+        cpp: `// Solution for ${activeProblemSlug}\n#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n`,
+        java: `// Solution for ${activeProblemSlug}\nimport java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n    }\n}\n`,
+        javascript: `// Solution for ${activeProblemSlug}\n`,
       };
       setCodeCache((prev) => ({
         ...prev,
