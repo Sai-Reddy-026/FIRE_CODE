@@ -746,6 +746,14 @@ int main() {
  */
 async function postJudge0WithRetry(url: string, payload: any, headers: any, retries = 2) {
     if (isCircuitOpen()) {
+        if (!url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
+            const localUrl = url.replace(/https?:\/\/[^\/]+/, "http://127.0.0.1:2358");
+            try {
+                return await axios.post(localUrl, payload, { headers, timeout: 10000 });
+            } catch {
+                // Ignore fallback error
+            }
+        }
         throw new Error("Judge0 circuit breaker is OPEN. Service temporarily unavailable.");
     }
 
@@ -757,6 +765,16 @@ async function postJudge0WithRetry(url: string, payload: any, headers: any, retr
             return response;
         } catch (err: any) {
             attempt++;
+            if (!url.includes("127.0.0.1:2358") && !url.includes("localhost:2358")) {
+                const localUrl = url.replace(/https?:\/\/[^\/]+/, "http://127.0.0.1:2358");
+                try {
+                    const localRes = await axios.post(localUrl, payload, { headers, timeout: 10000 });
+                    recordSuccess();
+                    return localRes;
+                } catch {
+                    // Ignore fallback error
+                }
+            }
             if (attempt > retries) {
                 recordFailure();
                 throw err;
