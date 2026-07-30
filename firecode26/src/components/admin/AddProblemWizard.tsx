@@ -226,17 +226,26 @@ export function validateProblemForm(formData: AddProblemFormData): ProblemValida
   } else {
     const seenHiddenInputs = new Set<string>();
     formData.hiddenTestCases.forEach((tc, idx) => {
+      // Check missing input first (always applicable)
       if (!tc.input || !tc.input.trim()) {
         steps[3].errors.push(`Hidden Case #${idx + 1}: Missing Input.`);
       }
-      if (!tc.expectedOutput || !tc.expectedOutput.trim()) {
-        steps[3].errors.push(`Hidden Case #${idx + 1}: Missing Expected Output.`);
-      }
+
+      // Status-aware output validation: pending/failed take precedence over generic "missing" message
       if (tc.status === "pending") {
-        steps[3].errors.push(`Hidden Case #${idx + 1}: Output generation is Pending.`);
+        steps[3].errors.push(
+          `Hidden Case #${idx + 1}: Output not generated yet — click "Generate Expected Outputs" first.`,
+        );
       } else if (tc.status === "failed") {
-        steps[3].errors.push(`Hidden Case #${idx + 1}: Output generation Failed.`);
+        steps[3].errors.push(
+          `Hidden Case #${idx + 1}: Output generation Failed — click "Retry Failed" to regenerate.`,
+        );
+      } else if (!tc.expectedOutput || !tc.expectedOutput.trim()) {
+        // Only flag as missing when status is not pending/failed (i.e. success with empty output)
+        steps[3].errors.push(`Hidden Case #${idx + 1}: Expected Output is empty after generation.`);
       }
+
+      // Duplicate input detection
       const trimmed = tc.input.trim();
       if (seenHiddenInputs.has(trimmed)) {
         steps[3].errors.push(`Hidden Case #${idx + 1}: Duplicate input content.`);

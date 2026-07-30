@@ -958,20 +958,11 @@ export async function runOfficialSolutionOnInput(
         }
     } catch (err: any) {
         const msg = err?.response?.data?.message || err?.message || String(err);
-        console.warn(`[Judge0 Fallback] Official solution execution on Judge0 failed (${msg}). Running local sandbox execution.`);
+        console.warn(`[Judge0 Fallback] Official solution execution on Judge0 failed (${msg}). Returning failure for output generation.`);
 
-        try {
-            const dummyProblem: any = { functionName: "solution", timeLimit, memoryLimit };
-            const dummyTestCase: any = { _id: "gen_out", executionOrder: 1, isHidden: false, input, expectedOutput: "" };
-            const res = executeLocalFallback(sourceCode, dummyProblem, dummyTestCase, language);
-
-            const outputStr = (res.user_output !== undefined && res.user_output !== null && res.user_output !== "")
-                ? res.user_output
-                : "0";
-            return { success: true, output: outputStr, runtime: res.runtime || 10 };
-        } catch (fallbackErr: any) {
-            return { success: true, output: "0", runtime: 10 };
-        }
+        // Return failure so the admin UI marks the case as "failed" and shows a Retry button.
+        // Do NOT silently return a fake "0" — that would pollute hidden test case expected outputs.
+        return { success: false, output: "", error: `Judge0 unreachable: ${msg}` };
     }
 }
 
