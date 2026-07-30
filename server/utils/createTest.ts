@@ -25,6 +25,49 @@ export interface JudgeReport {
 const rawJudge0Url = process.env.JUDGE0_URL || "https://limitations-str-licence-louisville.trycloudflare.com";
 const JUDGE0_URL = rawJudge0Url.replace(/\/$/, "");
 
+function formatNormalizedInput(rawInput: string): string {
+    if (!rawInput) return "";
+    const cleanInput = rawInput.trim();
+
+    // Extract numbers and arrays from input string like "nums = [2, 7, 11, 15]\ntarget = 9"
+    const arrayMatch = cleanInput.match(/\[([\s\S]*?)\]/);
+
+    if (arrayMatch) {
+        const arrStr = arrayMatch[1];
+        const arrTokens = arrStr.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+        const parsedArray: number[] = [];
+        for (const t of arrTokens) {
+            const num = Number(t);
+            if (!isNaN(num)) parsedArray.push(num);
+        }
+
+        // Find scalar values outside the brackets (e.g. target = 9)
+        const outsideStr = cleanInput.replace(arrayMatch[0], "");
+        const outsideTokens = outsideStr.split(/[\s=,]+/).map(s => s.trim()).filter(Boolean);
+        const outsideNums: number[] = [];
+        for (const t of outsideTokens) {
+            const num = Number(t);
+            if (!isNaN(num)) outsideNums.push(num);
+        }
+
+        if (parsedArray.length > 0) {
+            // Header line 1: size N
+            // Line 2: array elements space-separated
+            // Line 3+: outside scalars (e.g. target)
+            // Line 4+: raw cleanInput for string parsers
+            const normalizedLines = [
+                String(parsedArray.length),
+                parsedArray.join(" "),
+                ...outsideNums.map(String),
+                cleanInput
+            ];
+            return normalizedLines.join("\n");
+        }
+    }
+
+    return cleanInput;
+}
+
 function parseInputArgs(rawInput: string): any[] {
     const trimmed = (rawInput || "").trim();
     if (!trimmed) return [];
@@ -625,6 +668,16 @@ except Exception as e:
         }
         if (lang === "cpp" || lang === "c") {
             if (!userCode.includes("int main")) {
+                const funcName = safeFuncName || "solution";
+                let callExpr = "";
+                if (userCode.includes("class Solution")) {
+                    callExpr = `Solution sol;\n    vector<int> res = sol.${funcName}(nums, target);`;
+                } else if (userCode.includes("twoSum")) {
+                    callExpr = `vector<int> res = twoSum(nums, target);`;
+                } else {
+                    callExpr = `vector<int> res = solution(nums, target);`;
+                }
+
                 return `
 ${userCode}
 
@@ -645,31 +698,34 @@ static string trimCppStr(const string& s) {
 }
 
 int main() {
+    string fullInput = "";
     string line;
-    if (!getline(cin, line)) return 0;
+    while (getline(cin, line)) {
+        fullInput += line + " ";
+    }
 
     vector<int> nums;
     int target = 0;
 
-    size_t openB = line.find('[');
-    size_t closeB = line.find(']');
+    size_t openB = fullInput.find('[');
+    size_t closeB = fullInput.find(']');
     if (openB != string::npos && closeB != string::npos && closeB > openB) {
-        string numsStr = line.substr(openB + 1, closeB - openB - 1);
+        string numsStr = fullInput.substr(openB + 1, closeB - openB - 1);
         stringstream ss(numsStr);
         string val;
         while (getline(ss, val, ',')) {
             string t = trimCppStr(val);
             if (!t.empty()) nums.push_back(stoi(t));
         }
-        size_t comma = line.find(',', closeB);
+        size_t comma = fullInput.find(',', closeB);
         if (comma != string::npos) {
-            string tStr = trimCppStr(line.substr(comma + 1));
+            string tStr = trimCppStr(fullInput.substr(comma + 1));
             if (!tStr.empty()) target = stoi(tStr);
         }
     }
 
-    Solution sol;
-    vector<int> res = sol.${safeFuncName}(nums, target);
+    ${callExpr}
+
     cout << "[";
     for (size_t i = 0; i < res.size(); i++) {
         cout << res[i] << (i + 1 < res.size() ? "," : "");
@@ -751,12 +807,14 @@ async function executeSingleTestCase(
     const memLimit = Math.max(16384, Math.min(524288, rawMem));
 
     try {
+        const formattedInput = formatNormalizedInput(testCase.input);
+
         const response = await postJudge0WithRetry(
             `${JUDGE0_URL}/submissions?base64_encoded=true&wait=true`,
             {
                 source_code: encodeB64(sourceCode),
                 language_id: languageId,
-                stdin: encodeB64(testCase.input),
+                stdin: encodeB64(formattedInput),
                 cpu_time_limit: cpuLimit,
                 wall_time_limit: wallTimeLimit,
                 memory_limit: memLimit,
@@ -794,7 +852,13 @@ async function executeSingleTestCase(
                         finalStatus = "Wrong Answer";
                     }
                 } catch {
-                    finalStatus = "Wrong Answer";
+                    const normalizeArr = (s: string) => {
+                        const nums = s.replace(/[^0-9-]/g, " ").trim().split(/\s+/).filter(Boolean);
+                        return nums.join(",");
+                    };
+                    if (normalizeArr(userOutput) !== normalizeArr(expectedOutput)) {
+                        finalStatus = "Wrong Answer";
+                    }
                 }
             }
         }
