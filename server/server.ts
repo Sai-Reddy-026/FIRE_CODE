@@ -105,7 +105,7 @@ const app: express.Application = express();
 const port = process.env.PORT || 80;
 
 app.use(requestTracing as express.RequestHandler);
-app.use(compression());
+app.use(compression({ level: 4, threshold: 1024 }));
 app.use(customCors);
 app.use(helmetHeaders);
 

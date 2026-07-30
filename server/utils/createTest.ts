@@ -861,11 +861,28 @@ export async function executeTestCases(
     }
 
     const sourceCode = prepareSourceCode(userCode, problem, language);
-    const promises = testCases.map(tc =>
-        executeSingleTestCase(userCode, sourceCode, langId, tc, problem.timeLimit, problem.memoryLimit, problem, language)
-    );
 
-    const results = await Promise.all(promises);
+    // Concurrency-limited execution: cap at 10 simultaneous Judge0 calls.
+    // Promise.all() on 50+ test cases overwhelms the Cloudflare tunnel and causes timeouts.
+    // This rolling pool keeps throughput high while preventing connection saturation.
+    const MAX_CONCURRENT = Math.min(10, testCases.length);
+    const results: TestCaseExecutionResult[] = new Array(testCases.length);
+    let nextIndex = 0;
+
+    async function runNext(): Promise<void> {
+        while (nextIndex < testCases.length) {
+            const idx = nextIndex++;
+            const tc = testCases[idx];
+            results[idx] = await executeSingleTestCase(
+                userCode, sourceCode, langId, tc,
+                problem.timeLimit, problem.memoryLimit, problem, language
+            );
+        }
+    }
+
+    // Launch MAX_CONCURRENT workers that each consume from the queue
+    await Promise.all(Array.from({ length: MAX_CONCURRENT }, runNext));
+
 
     const statusPriority: TestCaseExecutionResult["status"][] = [
         "Compilation Error",

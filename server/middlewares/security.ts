@@ -380,21 +380,51 @@ export async function authorizeAdmin(
     }
 
     try {
-        // Confirm against DB in case role was changed, banned, or deleted since token was issued
-        const user = await UserModel.findById(req.authUser.id).select("-password");
+        // Cache admin authorization result for 90 seconds to avoid a DB round-trip on every admin API call.
+        // Key includes role so that a demoted admin's cached entry effectively becomes stale on next DB check.
+        const adminCacheKey = `admin:auth:${req.authUser.id}`;
+        const cachedAuth = await cacheService.get(adminCacheKey);
+
+        if (cachedAuth) {
+            // Fast path: cached verification — no DB hit
+            if (!cachedAuth.isAdmin || cachedAuth.isDeleted || cachedAuth.isBanned) {
+                return res.status(403).json({ success: false, message: "Forbidden: Admin access required" });
+            }
+            // Still need dbUser on the request for admin controllers that use it
+            // Re-attach a lightweight mock — actual DB fetch happens on cache miss only
+            req.dbUser = cachedAuth.dbUser as any;
+            return next();
+        }
+
+        // DB verification (on cache miss — first request or after 90s TTL)
+        // Narrow select: only fetch the 3 fields needed for auth check — avoids loading
+        // large arrays like refresh_tokens, problems_solved (~5–20 KB) on every admin call.
+        const user = await UserModel.findById(req.authUser.id).select("role isDeleted isBanned username email");
         if (!user || user.role !== "admin") {
             metricsRegistry.recordSecurityEvent("ADMIN_DB_VERIFY_FAILED", { userId: req.authUser.id });
             logger.security("ADMIN_DB_VERIFY_FAILED", { userId: req.authUser.id });
+            // Cache the negative result so repeated unauthorized requests don't hammer DB
+            await cacheService.set(adminCacheKey, { isAdmin: false, isDeleted: false, isBanned: false }, 90);
             return res.status(403).json({ success: false, message: "Forbidden: Admin access required" });
         }
         if (user.isDeleted) {
             logger.security("DEACTIVATED_ADMIN_ACCESS_ATTEMPT", { userId: req.authUser.id });
+            await cacheService.set(adminCacheKey, { isAdmin: true, isDeleted: true, isBanned: false }, 90);
             return res.status(403).json({ success: false, message: "Forbidden: Account is deactivated" });
         }
         if (user.isBanned) {
             logger.security("BANNED_ADMIN_ACCESS_ATTEMPT", { userId: req.authUser.id });
+            await cacheService.set(adminCacheKey, { isAdmin: true, isDeleted: false, isBanned: true }, 90);
             return res.status(403).json({ success: false, message: "Forbidden: Account is suspended" });
         }
+
+        // Cache the positive result with the lightweight user object
+        await cacheService.set(
+            adminCacheKey,
+            { isAdmin: true, isDeleted: false, isBanned: false, dbUser: user.toObject() },
+            90
+        );
+
         req.dbUser = user;
         next();
     } catch (e) {

@@ -31,7 +31,7 @@ export class ProblemRepository {
             query.slug = identifier;
         }
 
-        return ProblemModel.findOne(query);
+        return ProblemModel.findOne(query).lean();
     }
 
     static async findByIdOrSlug(problemId: number, slug: string) {
@@ -41,8 +41,8 @@ export class ProblemRepository {
     }
 
     static async getAll(query: any = {}, projection: any = null, sort: any = null) {
-        let dbQuery = ProblemModel.find(query, projection);
-        if (sort) dbQuery = dbQuery.sort(sort);
+        let dbQuery = ProblemModel.find(query, projection).lean();
+        if (sort) dbQuery = (dbQuery as any).sort(sort);
         return dbQuery;
     }
 
@@ -64,7 +64,7 @@ export class ProblemRepository {
     }
 
     static async findOneAdjacent(query: any, sort: any) {
-        return ProblemModel.findOne(query, "slug title problemId").sort(sort);
+        return ProblemModel.findOne(query, "slug title problemId").sort(sort).lean();
     }
 
     static async countProblems(query: any = {}) {

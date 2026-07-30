@@ -1,8 +1,10 @@
 import UserModel from "../models/user.model";
 
 export class UserRepository {
-    static async findById(id: string) {
-        return UserModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    static async findById(id: string, projection?: string) {
+        const q = UserModel.findOne({ _id: id, isDeleted: { $ne: true } });
+        if (projection) q.select(projection);
+        return q;
     }
 
     static async findByIdIncludeDeleted(id: string) {

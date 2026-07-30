@@ -23,8 +23,10 @@ class CacheService {
                 url: redisUrl,
                 socket: {
                     reconnectStrategy: (retries: number) => {
-                        if (retries > 1) return false;
-                        return 100;
+                        // Retry up to 5 times with exponential back-off (100ms, 200ms, 400ms, 800ms, 1600ms).
+                        // Giving up after 1 retry caused permanent cache degradation on any transient Redis blip.
+                        if (retries > 5) return false;
+                        return Math.min(100 * Math.pow(2, retries - 1), 2000);
                     },
                 },
             });
@@ -92,13 +94,52 @@ class CacheService {
     async delByPattern(pattern: string): Promise<void> {
         if (!this.isReady || !this.client) return;
         try {
-            const keys = await this.client.keys(pattern);
-            if (keys && keys.length > 0) {
-                await this.client.del(keys);
-            }
+            // Use SCAN instead of KEYS to avoid blocking Redis on large keyspaces.
+            // KEYS is O(N) and can pause Redis for hundreds of ms on a large DB.
+            let cursor = 0;
+            do {
+                const reply = await this.client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+                cursor = reply.cursor;
+                if (reply.keys && reply.keys.length > 0) {
+                    await this.client.del(reply.keys);
+                }
+            } while (cursor !== 0);
         } catch (err: any) {
             getLogger().error(`[Cache] Redis DEL pattern [${pattern}] error`, { error: err?.message || String(err) });
         }
+    }
+
+    // In-flight promise map: prevents multiple concurrent requests from all missing
+    // the cache and simultaneously querying the DB (thundering herd / cache stampede).
+    private inflight = new Map<string, Promise<any>>();
+
+    /**
+     * Get a cached value, or compute + cache it if missing.
+     * Only ONE fetcher call runs even if many requests arrive simultaneously on a cold miss.
+     */
+    async getOrSet<T>(key: string, fetcher: () => Promise<T>, ttlSeconds: number): Promise<T> {
+        // 1. Cache hit
+        const cached = await this.get(key);
+        if (cached !== null) return cached as T;
+
+        // 2. Already in-flight — return shared promise
+        if (this.inflight.has(key)) {
+            return this.inflight.get(key) as Promise<T>;
+        }
+
+        // 3. Start fetch, register in-flight
+        const promise = (async () => {
+            try {
+                const value = await fetcher();
+                await this.set(key, value, ttlSeconds);
+                return value;
+            } finally {
+                this.inflight.delete(key);
+            }
+        })();
+
+        this.inflight.set(key, promise);
+        return promise;
     }
 
     async flushAll(): Promise<void> {

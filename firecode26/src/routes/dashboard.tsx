@@ -80,14 +80,18 @@ function DashboardPage() {
   const { data: upcomingContests } = useQuery<ContestItem[]>({
     queryKey: ["contests", "upcoming"],
     queryFn: () => api.get<ContestItem[]>("/contests/upcoming"),
-    staleTime: 2 * 60 * 1000,
+    // Contests are scheduled events that change rarely — 15 min stale avoids re-fetching on every visit.
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const { data: profileData } = useQuery<UserProfile>({
     queryKey: ["profile", userId],
     queryFn: () => api.get<UserProfile>(`/accounts/id/${userId}`),
     enabled: !!userId,
-    staleTime: 5 * 60 * 1000,
+    // Profile stats update after submissions — 10 min stale is fine since the dashboard shows trends.
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const currentStreak = activity?.current_streak ?? 0;

@@ -175,7 +175,9 @@ export function startSubmissionWorker() {
             },
             {
                 connection,
-                concurrency: 4,
+                // Read from env so concurrency can be tuned on Render without a code change.
+                // Render free tier: 2, Starter: 4, Standard+: 8
+                concurrency: parseInt(process.env.WORKER_CONCURRENCY || "4", 10),
                 lockDuration: 30000,
                 // Retry config is set via Queue's defaultJobOptions in queue.service.ts
             }

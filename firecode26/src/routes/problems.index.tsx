@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle2, Circle, Bookmark, Search } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
@@ -66,7 +66,10 @@ function ProblemsPage() {
   } = useQuery<FrontendProblem[]>({
     queryKey: ["problems"],
     queryFn: () => api.get<FrontendProblem[]>("/problem/all"),
-    staleTime: 60 * 1000,
+    // Problem list only changes when an admin publishes — 10 min stale time avoids
+    // re-fetching on every tab focus or navigation between pages.
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const rows = useMemo(() => {
@@ -236,16 +239,19 @@ function ProblemsPage() {
   );
 }
 
-function DiffBadge({ d }: { d: string }) {
-  const map: Record<string, string> = {
-    easy: "text-[color:var(--color-success)] border-[color:var(--color-success)]/30",
-    medium: "text-[color:var(--color-warning)] border-[color:var(--color-warning)]/30",
-    hard: "text-[color:var(--color-destructive)] border-[color:var(--color-destructive)]/40",
-  };
+// Map is defined outside the component so it's created once, not on every render.
+const DIFF_CLASS_MAP: Record<string, string> = {
+  easy: "text-[color:var(--color-success)] border-[color:var(--color-success)]/30",
+  medium: "text-[color:var(--color-warning)] border-[color:var(--color-warning)]/30",
+  hard: "text-[color:var(--color-destructive)] border-[color:var(--color-destructive)]/40",
+};
+
+// memo: skip re-renders when parent re-renders from search/filter state changes
+const DiffBadge = memo(function DiffBadge({ d }: { d: string }) {
   const key = d.toLowerCase();
   return (
-    <Badge variant="outline" className={map[key] ?? ""}>
+    <Badge variant="outline" className={DIFF_CLASS_MAP[key] ?? ""}>
       {d.charAt(0).toUpperCase() + d.slice(1)}
     </Badge>
   );
-}
+});
