@@ -82,22 +82,24 @@ process.on("uncaughtException", (error) => {
 
 initDbProfiler();
 
-// Production Connection Pool Configuration
-mongoose.connect(MONGODB_URI, {
-    maxPoolSize: 50,
-    minPoolSize: 5,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-});
+async function connectDatabase() {
+    try {
+        await mongoose.connect(MONGODB_URI, {
+            maxPoolSize: 50,
+            minPoolSize: 5,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+        });
+        logger.info("Connected to MongoDB with production connection pool.");
+        await runDatabaseMigration();
+        startSubmissionWorker();
+    } catch (err) {
+        logger.error("MongoDB connection error:", err);
+    }
+}
 
 export const db = mongoose.connection;
-
-db.on("error", (err) => logger.error("MongoDB connection error:", err));
-db.once("open", async () => {
-    logger.info("Connected to MongoDB with production connection pool.");
-    await runDatabaseMigration();
-    startSubmissionWorker();
-});
+connectDatabase();
 
 const app: express.Application = express();
 const port = process.env.PORT || 80;
