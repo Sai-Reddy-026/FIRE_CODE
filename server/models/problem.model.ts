@@ -31,8 +31,6 @@ export interface IProblem extends Document {
     };
     examples: IExample[];
     starterCode: IStarterCode[];
-    functionName?: string;
-    driverCode?: Record<string, string>;
     languageVersion: Record<string, string>;
     timeLimit: number; // in milliseconds
     memoryLimit: number; // in megabytes
@@ -81,8 +79,6 @@ const problemSchema = new Schema<IProblem>(
         },
         examples: { type: [exampleSchema], default: [] },
         starterCode: { type: [starterCodeSchema], default: [] },
-        functionName: { type: String },
-        driverCode: { type: Map, of: String, default: {} },
         languageVersion: { type: Map, of: String, default: {} },
         timeLimit: { type: Number, default: 2000, min: [0, "timeLimit cannot be negative"] },
         memoryLimit: { type: Number, default: 256, min: [0, "memoryLimit cannot be negative"] },

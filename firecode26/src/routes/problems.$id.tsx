@@ -22,12 +22,9 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
-  Clock,
-  Code2,
-  AlertTriangle,
-  Check,
+  Terminal,
 } from "lucide-react";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
@@ -47,6 +44,10 @@ export const Route = createFileRoute("/problems/$id")({
   }),
   component: ProblemDetail,
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface LegacyFrontendProblem {
   _id: string;
@@ -71,7 +72,6 @@ interface LegacyFrontendProblem {
     editorial_body: string;
   };
   test: any[][];
-  function_name: string;
 }
 
 interface RunResponse {
@@ -80,6 +80,8 @@ interface RunResponse {
   runtime: number;
   memory: number;
   error_message?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
   input?: string | null;
   expected_output?: string | null;
   user_output?: string | null;
@@ -113,6 +115,127 @@ interface EditorialResponse {
   editorial_body: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Starter Code Templates — these go into the EDITOR, never the description
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STARTER_TEMPLATES: Record<string, string> = {
+  cpp: `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    // Read input from stdin
+    // Write output to stdout
+    return 0;
+}
+`,
+  c: `#include <stdio.h>
+
+int main() {
+    // Read input from stdin
+    // Write output to stdout
+    return 0;
+}
+`,
+  java: `import java.util.*;
+import java.io.*;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // Read input and write output
+    }
+}
+`,
+  python: `import sys
+input = sys.stdin.readline
+
+# Read input and print output
+`,
+  javascript: `const lines = require('fs').readFileSync('/dev/stdin', 'utf-8').trim().split('\\n');
+let idx = 0;
+
+// Read input and print output
+`,
+  typescript: `import * as readline from 'readline';
+const rl = readline.createInterface({ input: process.stdin });
+const lines: string[] = [];
+rl.on('line', l => lines.push(l));
+rl.on('close', () => {
+    // Process input lines[] and print output
+});
+`,
+  go: `package main
+
+import (
+    "bufio"
+    "fmt"
+    "os"
+)
+
+func main() {
+    reader := bufio.NewReader(os.Stdin)
+    _ = reader
+    // Read input and print output
+    fmt.Println()
+}
+`,
+  rust: `use std::io::{self, BufRead};
+
+fn main() {
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let _line = line.unwrap();
+        // Process input and print output
+    }
+}
+`,
+  csharp: `using System;
+using System.IO;
+
+class Program {
+    static void Main() {
+        // Read input and write output
+        string line = Console.ReadLine();
+    }
+}
+`,
+  kotlin: `fun main() {
+    // Read input and print output
+    val line = readLine()!!
+}
+`,
+};
+
+// Supported language list for the dropdown
+const SUPPORTED_LANGUAGES = [
+  { id: "cpp", label: "C++" },
+  { id: "c", label: "C" },
+  { id: "java", label: "Java" },
+  { id: "python", label: "Python" },
+  { id: "javascript", label: "JavaScript" },
+  { id: "typescript", label: "TypeScript" },
+  { id: "go", label: "Go" },
+  { id: "rust", label: "Rust" },
+  { id: "csharp", label: "C#" },
+  { id: "kotlin", label: "Kotlin" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sanitize HTML from backend (never trust raw HTML — strip scripts)
+// ─────────────────────────────────────────────────────────────────────────────
+function sanitizeHtml(html: string): string {
+  // Remove script tags, event handlers, and javascript: URLs
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────────────────────
+
 function ProblemDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
@@ -124,33 +247,39 @@ function ProblemDetail() {
     }
   }, [navigate]);
 
-  const [lang, setLang] = useState("javascript");
+  // ── Language & Editor State ────────────────────────────────────────────────
+  const [lang, setLang] = useState("cpp");
+  // Per-language code cache so switching language preserves edits
   const [codeCache, setCodeCache] = useState<Record<string, string>>({});
+
+  // ── Run State ─────────────────────────────────────────────────────────────
+  // customInput is what the user types in the "Custom Input" textarea
+  const [customInput, setCustomInput] = useState("");
   const [runResult, setRunResult] = useState<RunResponse | null>(null);
 
-  // Tabs & Submission Filters State
+  // ── Tabs & Submission Filters ─────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("desc");
   const [subLangFilter, setSubLangFilter] = useState("all");
   const [subVerdictFilter, setSubVerdictFilter] = useState("all");
   const [subDateFilter, setSubDateFilter] = useState("all");
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
 
-  const [selectedCaseIdx, setSelectedCaseIdx] = useState(0);
-
+  // Reset state when problem changes
   useEffect(() => {
     setRunResult(null);
     setCodeCache({});
-    setSelectedCaseIdx(0);
+    setCustomInput("");
   }, [id]);
 
+  // ── Data Fetching ─────────────────────────────────────────────────────────
   const { data: problemData, isLoading } = useQuery<LegacyFrontendProblem>({
     queryKey: ["problem", id],
     queryFn: () => api.get<LegacyFrontendProblem>(`/problem/${id}`),
     enabled: !!id,
   });
 
-  // SMART REAL-TIME POLLING FOR SUBMISSIONS
-  const { data: submissions = [], refetch: refetchSubmissions } = useQuery<SubmissionItem[]>({
+  // Smart real-time polling for pending submissions
+  const { data: submissions = [] } = useQuery<SubmissionItem[]>({
     queryKey: ["submissions", id],
     queryFn: () => api.get<SubmissionItem[]>(`/problem/submissions/${id}`),
     enabled: !!id,
@@ -176,83 +305,51 @@ function ProblemDetail() {
 
   const main = problemData?.main;
 
+  // ── Populate starter code from API, but NEVER overwrite user edits ─────────
   useEffect(() => {
-    if (main?.code_body) {
-      setCodeCache((prev) => {
-        const updated = { ...prev };
-        Object.entries(main.code_body).forEach(([k, v]) => {
-          if (updated[k] === undefined) {
-            updated[k] = v;
-          }
-        });
-        return updated;
+    if (!main?.code_body) return;
+    setCodeCache((prev) => {
+      const updated = { ...prev };
+      Object.entries(main.code_body).forEach(([langKey, starterCode]) => {
+        // Only set if the user hasn't typed anything yet for this language
+        if (updated[langKey] === undefined && starterCode) {
+          updated[langKey] = starterCode;
+        }
       });
-      if (main.code_default_language && main.code_body[main.code_default_language]) {
-        setLang((prev) => (main.code_body[prev] ? prev : main.code_default_language));
-      }
+      return updated;
+    });
+    // Set default language if the server provides one
+    if (main.code_default_language && main.code_body[main.code_default_language]) {
+      setLang((prev) => (main.code_body[prev] ? prev : main.code_default_language));
     }
   }, [main]);
 
-  const SUPPORTED_LANGUAGES = useMemo(
-    () => [
-      { id: "javascript", label: "JavaScript" },
-      { id: "typescript", label: "TypeScript" },
-      { id: "python", label: "Python" },
-      { id: "cpp", label: "C++" },
-      { id: "c", label: "C" },
-      { id: "java", label: "Java" },
-      { id: "go", label: "Go" },
-      { id: "rust", label: "Rust" },
-      { id: "csharp", label: "C#" },
-      { id: "kotlin", label: "Kotlin" },
-    ],
-    [],
-  );
-
-  const DEFAULT_STARTER_TEMPLATES: Record<string, string> = useMemo(
-    () => ({
-      cpp: "// Write your code here\n#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n",
-      c: "// Write your code here\n#include <stdio.h>\n\nint main() {\n    return 0;\n}\n",
-      java: "// Write your code here\nimport java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n    }\n}\n",
-      python: "# Write your code here\n",
-      javascript: "// Write your code here\n",
-      typescript: "// Write your code here\n",
-      go: "// Write your code here\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n}\n",
-      rust: "// Write your code here\nfn main() {\n}\n",
-      csharp: "// Write your code here\nusing System;\n\npublic class Program {\n    public static void Main() {\n    }\n}\n",
-      kotlin: "// Write your code here\nfun main() {\n}\n",
-    }),
-    [],
-  );
-
-  const activeCode =
-    codeCache[lang] ?? (main?.code_body?.[lang] || DEFAULT_STARTER_TEMPLATES[lang] || "");
-
-  const sampleCases = useMemo(() => {
-    if (problemData?.test && Array.isArray(problemData.test) && problemData.test.length > 0) {
-      return problemData.test.map((t, idx) => ({
-        id: idx + 1,
-        input: typeof t[0] === "string" ? t[0] : JSON.stringify(t[0]),
-        expectedOutput: typeof t[1] === "string" ? t[1] : JSON.stringify(t[1]),
-      }));
+  // Prefill customInput with first sample input when problem loads
+  useEffect(() => {
+    if (problemData?.test && problemData.test.length > 0) {
+      const firstInput = problemData.test[0];
+      if (Array.isArray(firstInput) && firstInput.length > 0) {
+        const inputVal = typeof firstInput[0] === "string" ? firstInput[0] : JSON.stringify(firstInput[0]);
+        setCustomInput(inputVal);
+      }
     }
-    return [
-      { id: 1, input: 's = "abcabcbb"', expectedOutput: "3" },
-      { id: 2, input: 's = "bbbbb"', expectedOutput: "1" },
-      { id: 3, input: 's = "pwwkew"', expectedOutput: "3" },
-    ];
-  }, [problemData?.test]);
+  }, [problemData]);
+
+  // ── Active code for the editor ─────────────────────────────────────────────
+  // Priority: user-edited cache > API starter code > local default template
+  const activeCode = useMemo(
+    () => codeCache[lang] ?? (main?.code_body?.[lang] || STARTER_TEMPLATES[lang] || ""),
+    [codeCache, lang, main],
+  );
 
   const handleCodeChange = useCallback(
     (newCode: string) => {
-      setCodeCache((prev) => ({
-        ...prev,
-        [lang]: newCode,
-      }));
+      setCodeCache((prev) => ({ ...prev, [lang]: newCode }));
     },
     [lang],
   );
 
+  // Derive display metadata
   const problemTitle = main
     ? `${main.id}. ${main.name.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}`
     : `#${id}`;
@@ -262,10 +359,12 @@ function ProblemDetail() {
   const topics = main?.related_topics ?? [];
   const acceptanceRate = main ? `${main.acceptance_rate_count}%` : "—";
   const submissionCountText = main ? `${main.submission_count} submissions` : "—";
-  const descriptionHtml = main?.description_body;
   const hints = main?.hints ?? [];
 
-  const runMutation = useMutation<RunResponse, Error, { code: string; language: string }>({
+  // ── Run Mutation ──────────────────────────────────────────────────────────
+  // Sends: { code, language, customInput }
+  // The backend sends ONLY code + customInput to Judge0 — never the problem statement
+  const runMutation = useMutation<RunResponse, Error, { code: string; language: string; customInput: string }>({
     mutationFn: (body) => api.post<RunResponse>(`/problem/run/${id}`, body),
     onSuccess: (data) => {
       setRunResult(data);
@@ -281,6 +380,8 @@ function ProblemDetail() {
     },
   });
 
+  // ── Submit Mutation ───────────────────────────────────────────────────────
+  // Sends: { code, language }  — NO custom input, runs against hidden test cases
   const submitMutation = useMutation<
     SubmissionItem[],
     Error,
@@ -317,7 +418,7 @@ function ProblemDetail() {
     },
   });
 
-  // Filter Submissions (Newest First)
+  // ── Filter Submissions (Newest First) ─────────────────────────────────────
   const filteredSubmissions = useMemo(() => {
     return submissions
       .filter((s) => {
@@ -338,8 +439,10 @@ function ProblemDetail() {
       );
   }, [submissions, subLangFilter, subVerdictFilter, subDateFilter]);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-dvh flex-col">
+      {/* ── Header ── */}
       <header className="flex h-14 items-center justify-between gap-4 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <Link to="/problems">
@@ -360,7 +463,8 @@ function ProblemDetail() {
             disabled={runMutation.isPending || submitMutation.isPending || !activeCode.trim()}
             onClick={() => {
               setRunResult(null);
-              runMutation.mutate({ code: activeCode, language: lang });
+              // IMPORTANT: customInput (not the problem statement) is sent to the compiler
+              runMutation.mutate({ code: activeCode, language: lang, customInput });
             }}
           >
             <Play className="mr-1.5 h-4 w-4" />
@@ -372,6 +476,7 @@ function ProblemDetail() {
             disabled={submitMutation.isPending || runMutation.isPending || !activeCode.trim()}
             onClick={() => {
               setRunResult(null);
+              // Submit sends ONLY code + language — hidden test cases are on the backend
               submitMutation.mutate({
                 code: activeCode,
                 language: lang,
@@ -387,15 +492,20 @@ function ProblemDetail() {
       </header>
 
       <div className="grid flex-1 gap-0 lg:grid-cols-2">
-        {/* Problem pane */}
+        {/* ── LEFT: Problem Statement Panel ── */}
         <div className="overflow-y-auto border-r border-border/60 p-6 lg:max-h-[calc(100dvh-3.5rem)]">
+          {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Link to="/problems" className="hover:text-foreground">
               Problems
             </Link>{" "}
             / <span>#{id}</span>
           </div>
+
+          {/* Title */}
           <h1 className="mt-2 font-display text-2xl font-bold tracking-tight">{problemTitle}</h1>
+
+          {/* Metadata row */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Badge
               variant="outline"
@@ -419,6 +529,7 @@ function ProblemDetail() {
             </span>
           </div>
 
+          {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
             <TabsList className="grid w-full max-w-md grid-cols-4">
               <TabsTrigger value="desc">Description</TabsTrigger>
@@ -427,15 +538,24 @@ function ProblemDetail() {
               <TabsTrigger value="discuss">Discuss</TabsTrigger>
             </TabsList>
 
-            {/* DESCRIPTION TAB */}
-            <TabsContent value="desc" className="prose prose-invert max-w-none">
+            {/* ── DESCRIPTION TAB ── */}
+            <TabsContent value="desc" className="mt-4">
               {isLoading && (
-                <p className="mt-4 text-sm text-muted-foreground">Loading problem details...</p>
+                <p className="text-sm text-muted-foreground">Loading problem details...</p>
               )}
-              {!isLoading && descriptionHtml && (
+              {!isLoading && main?.description_body && (
+                /*
+                 * IMPORTANT: description_body is ONLY the problem statement HTML.
+                 * It is built by dto.ts on the backend and contains ONLY:
+                 *   - Description text
+                 *   - Input/Output format
+                 *   - Constraints
+                 *   - Examples
+                 * It NEVER contains code and is NEVER sent to the compiler.
+                 */
                 <div
-                  dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-                  className="mt-4 text-sm leading-relaxed text-muted-foreground space-y-3"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(main.description_body) }}
+                  className="prose-problem text-sm leading-relaxed text-muted-foreground"
                 />
               )}
 
@@ -451,13 +571,14 @@ function ProblemDetail() {
               )}
             </TabsContent>
 
-            {/* EDITORIAL TAB */}
+            {/* ── EDITORIAL TAB ── */}
             <TabsContent value="editorial">
               {editorialData?.editorial_body || problemData?.editorial?.editorial_body ? (
                 <div
                   dangerouslySetInnerHTML={{
-                    __html:
+                    __html: sanitizeHtml(
                       editorialData?.editorial_body || problemData?.editorial?.editorial_body || "",
+                    ),
                   }}
                   className="mt-4 text-sm leading-relaxed text-muted-foreground space-y-2"
                 />
@@ -468,9 +589,9 @@ function ProblemDetail() {
               )}
             </TabsContent>
 
-            {/* SUBMISSIONS TAB & REAL-TIME HISTORY MANAGER */}
+            {/* ── SUBMISSIONS TAB ── */}
             <TabsContent value="submissions" className="space-y-4 pt-4">
-              {/* Filter Controls Bar */}
+              {/* Filter Controls */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-border/60 bg-card/60 text-xs">
                 <div className="flex items-center gap-2">
                   <Filter className="h-3.5 w-3.5 text-amber-400" />
@@ -598,7 +719,7 @@ function ProblemDetail() {
                           </div>
                         </div>
 
-                        {/* Expandable Inspection Details */}
+                        {/* Expandable Details */}
                         {isExpanded && (
                           <div className="p-4 border-t border-border/60 bg-background/60 space-y-3 animate-in fade-in duration-150">
                             <div className="flex items-center justify-between text-xs font-bold text-muted-foreground">
@@ -650,10 +771,18 @@ function ProblemDetail() {
           </Tabs>
         </div>
 
-        {/* Editor pane */}
+        {/* ── RIGHT: Editor Panel ── */}
         <div className="flex min-h-[500px] flex-col">
+          {/* Language selector toolbar */}
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-2">
-            <Select value={lang} onValueChange={setLang}>
+            <Select
+              value={lang}
+              onValueChange={(newLang) => {
+                setLang(newLang);
+                // If no cached code for this language, the editor falls back to STARTER_TEMPLATES
+                // The problem description is NEVER put here
+              }}
+            >
               <SelectTrigger className="h-8 w-[160px]">
                 <SelectValue />
               </SelectTrigger>
@@ -671,10 +800,17 @@ function ProblemDetail() {
               </Button>
             </div>
           </div>
+
+          {/*
+           * MONACO EDITOR
+           * value = activeCode = user's code (from cache or starter template)
+           * The problem statement NEVER appears here.
+           * The editor value is ONLY sent to /problem/run/:id and /problem/submit/:id
+           */}
           <div className="flex-1 min-h-[380px] overflow-hidden bg-background/80 border-b border-border/60">
             <Editor
               height="100%"
-              language={lang === "cpp" ? "cpp" : lang}
+              language={lang === "csharp" ? "csharp" : lang}
               theme="vs-dark"
               value={activeCode}
               onChange={(val) => handleCodeChange(val || "")}
@@ -691,84 +827,67 @@ function ProblemDetail() {
             />
           </div>
 
+          {/* ── Bottom Panel: Custom Input + Output ── */}
           <div className="bg-card/40 p-4 space-y-4 border-t border-border/60">
-            {/* Testcase & Result Header Bar */}
+            {/* Status bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
-              <div className="flex items-center gap-3">
-                <span className="font-display text-sm font-bold text-foreground">Testcases</span>
-                <div className="flex items-center gap-1.5">
-                  {sampleCases.map((sc, idx) => {
-                    const caseResult = runResult?.results?.[idx];
-                    const isPassed = caseResult?.status === "Accepted";
-
-                    return (
-                      <button
-                        key={sc.id}
-                        type="button"
-                        onClick={() => setSelectedCaseIdx(idx)}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                          selectedCaseIdx === idx
-                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm"
-                            : "bg-background/60 text-muted-foreground hover:bg-background hover:text-foreground border border-transparent"
-                        }`}
-                      >
-                        <span>Case {sc.id}</span>
-                        {caseResult && (
-                          <span className={isPassed ? "text-emerald-400 font-bold" : "text-destructive font-bold"}>
-                            {isPassed ? "✔" : "✖"}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
               <div className="flex items-center gap-2">
-                <span
-                  className={`inline-flex items-center gap-1.5 text-xs font-bold ${
-                    runResult?.status === "Accepted"
-                      ? "text-emerald-400"
-                      : runResult?.status
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                  }`}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {runResult?.status ?? "Ready to Run"}
-                  {runResult ? ` · ${runResult.runtime}ms · ${runResult.memory}KB` : ""}
-                </span>
+                <Terminal className="h-4 w-4 text-amber-400" />
+                <span className="font-display text-sm font-bold text-foreground">I/O Panel</span>
               </div>
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-bold ${
+                  runResult?.status === "Accepted"
+                    ? "text-emerald-400"
+                    : runResult?.status
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                }`}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {runResult?.status ?? "Ready"}
+                {runResult && runResult.runtime > 0
+                  ? ` · ${runResult.runtime}ms · ${runResult.memory}KB`
+                  : ""}
+              </span>
             </div>
 
-            {/* Active Test Case Inputs & Output display */}
+            {/* Custom Input + Output side by side */}
             <div className="grid gap-3 md:grid-cols-2">
+              {/* Custom Input */}
               <div>
-                <div className="text-[11px] text-muted-foreground font-semibold flex items-center justify-between">
-                  <span>Input (Case {selectedCaseIdx + 1}):</span>
+                <div className="text-[11px] text-muted-foreground font-semibold mb-1">
+                  Custom Input (stdin):
                 </div>
-                <pre className="mono mt-1 rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-foreground overflow-x-auto">
-                  {sampleCases[selectedCaseIdx]?.input || runResult?.input || 's = "pwwkew"'}
-                </pre>
+                <textarea
+                  id="custom-input-textarea"
+                  className="w-full min-h-[100px] rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-foreground font-mono resize-y focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                  placeholder="Enter your custom input here (will be fed to stdin)..."
+                  value={customInput}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  spellCheck={false}
+                />
               </div>
 
+              {/* Output */}
               <div>
-                <div className="text-[11px] text-muted-foreground font-semibold flex items-center justify-between">
-                  <span>{runResult ? "Your Output:" : "Expected Output:"}</span>
-                  {sampleCases[selectedCaseIdx]?.expectedOutput && (
-                    <span className="text-[10px] text-amber-400 font-mono">
-                      Expected: {sampleCases[selectedCaseIdx].expectedOutput}
+                <div className="text-[11px] text-muted-foreground font-semibold mb-1">
+                  Output (stdout):
+                </div>
+                <pre className="min-h-[100px] rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-foreground overflow-x-auto whitespace-pre-wrap font-mono">
+                  {runMutation.isPending || submitMutation.isPending ? (
+                    <span className="text-amber-400 animate-pulse">Executing…</span>
+                  ) : runResult?.error_message ? (
+                    <span className="text-destructive">{runResult.error_message}</span>
+                  ) : runResult?.stdout !== undefined && runResult.stdout !== null ? (
+                    runResult.stdout || <span className="text-muted-foreground">(empty output)</span>
+                  ) : runResult?.user_output !== undefined && runResult.user_output !== null ? (
+                    runResult.user_output || <span className="text-muted-foreground">(empty output)</span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Click Run to see output here…
                     </span>
                   )}
-                </div>
-                <pre className="mono mt-1 rounded-lg border border-border/60 bg-background/80 p-3 text-xs text-foreground overflow-x-auto">
-                  {runResult?.error_message
-                    ? `Error: ${runResult.error_message}`
-                    : runResult?.results?.[selectedCaseIdx]?.user_output !== undefined
-                      ? runResult.results[selectedCaseIdx].user_output
-                      : runResult?.user_output !== undefined
-                        ? runResult.user_output
-                        : sampleCases[selectedCaseIdx]?.expectedOutput || "Run output will appear here"}
                 </pre>
               </div>
             </div>

@@ -267,7 +267,7 @@ export const globalRateLimiter = createRateLimiter({
 const HTML_FIELDS = new Set([
     "description", "editorial", "code", "code_body",
     "inputFormat", "outputFormat", "constraints", "notes",
-    "starterCode", "driverCode", "payload", "source_code",
+    "starterCode", "payload", "source_code",
 ]);
 
 function cleanXss(val: any, key?: string): any {

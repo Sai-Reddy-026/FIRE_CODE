@@ -100,7 +100,6 @@ export async function runDatabaseMigration() {
                 editorial: editorialStr,
                 examples: examples,
                 starterCode: starterCode,
-                functionName: lp.functionName || lp.function_name || "twoSum",
                 timeLimit: lp.timeLimit || 2000,
                 memoryLimit: lp.memoryLimit || 256,
                 points: lp.points || 10,

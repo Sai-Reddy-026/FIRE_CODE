@@ -154,6 +154,7 @@ export function StudentContestWorkspace() {
     Record<string, "unopened" | "attempted" | "solved">
   >({});
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
+  const [customInput, setCustomInput] = useState("");
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState("");
 
@@ -313,8 +314,9 @@ export function StudentContestWorkspace() {
     setCodeCache((prev) => ({ ...prev, [`${activeProblemSlug}_${selectedLang}`]: newCode }));
   };
 
-  // Run Code Mutation using Judge0
-  const runMutation = useMutation<ExecutionResult, Error, { code: string; language: string }>({
+  // Run Code Mutation — sends code + language + customInput to backend
+  // The backend compiles code with customInput as stdin (NEVER the problem statement)
+  const runMutation = useMutation<ExecutionResult, Error, { code: string; language: string; customInput: string }>({
     mutationFn: (body) => api.post<ExecutionResult>(`/problem/run/${activeProblemSlug}`, body),
     onSuccess: (data) => {
       setExecResult(data);
@@ -668,7 +670,7 @@ export function StudentContestWorkspace() {
                     size="sm"
                     className="h-8 text-xs gap-1.5"
                     disabled={runMutation.isPending || submitMutation.isPending}
-                    onClick={() => runMutation.mutate({ code: activeCode, language: selectedLang })}
+                    onClick={() => runMutation.mutate({ code: activeCode, language: selectedLang, customInput })}
                   >
                     {runMutation.isPending ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -715,10 +717,45 @@ export function StudentContestWorkspace() {
                 />
               </div>
 
-              {/* EXECUTION RESULT DISPLAY BANNER */}
+              {/* CUSTOM INPUT + OUTPUT */}
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div>
+                  <div className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wider">
+                    Custom Input (stdin):
+                  </div>
+                  <textarea
+                    id="contest-custom-input"
+                    className="w-full min-h-[80px] rounded-lg border border-border/60 bg-background/80 p-2.5 text-xs text-foreground font-mono resize-y focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                    placeholder="Enter input for your code..."
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    spellCheck={false}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wider">
+                    Output (stdout):
+                  </div>
+                  <pre className="min-h-[80px] rounded-lg border border-border/60 bg-background/80 p-2.5 text-xs text-foreground font-mono whitespace-pre-wrap overflow-x-auto">
+                    {runMutation.isPending ? (
+                      <span className="text-amber-400 animate-pulse">Executing…</span>
+                    ) : execResult?.error_message ? (
+                      <span className="text-destructive">{execResult.error_message}</span>
+                    ) : (execResult as any)?.stdout !== undefined && (execResult as any)?.stdout !== null ? (
+                      (execResult as any).stdout || <span className="text-muted-foreground">(empty)</span>
+                    ) : execResult?.user_output ? (
+                      execResult.user_output
+                    ) : (
+                      <span className="text-muted-foreground">Click Run to see output…</span>
+                    )}
+                  </pre>
+                </div>
+              </div>
+
+              {/* EXECUTION STATUS BANNER */}
               {execResult && (
                 <div
-                  className={`rounded-xl border p-4 text-xs space-y-2 animate-in fade-in duration-150 ${
+                  className={`rounded-xl border p-3 text-xs space-y-2 animate-in fade-in duration-150 ${
                     execResult.success
                       ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
                       : "border-destructive/50 bg-destructive/10 text-destructive"
@@ -734,40 +771,16 @@ export function StudentContestWorkspace() {
                       Status: {execResult.status}
                     </span>
                     <span className="text-[10px] text-muted-foreground font-mono">
-                      Runtime: {execResult.runtime}ms | Memory: {execResult.memory}KB
+                      {execResult.runtime > 0 ? `${execResult.runtime}ms | ${execResult.memory}KB` : ""}
                     </span>
                   </div>
-
-                  {execResult.error_message && (
-                    <div className="font-mono text-[11px] p-2 rounded bg-background/60 border border-border/40 whitespace-pre-wrap">
-                      {execResult.error_message}
-                    </div>
-                  )}
-
-                  {execResult.user_output && (
-                    <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[10px]">
-                      <div>
-                        <span className="text-muted-foreground block font-bold">Your Output:</span>
-                        <pre className="p-1.5 rounded bg-background/50">
-                          {execResult.user_output}
-                        </pre>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block font-bold">
-                          Expected Output:
-                        </span>
-                        <pre className="p-1.5 rounded bg-background/50">
-                          {execResult.expected_output}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
+
 
       {/* RULES MODAL */}
       {showRulesModal && (

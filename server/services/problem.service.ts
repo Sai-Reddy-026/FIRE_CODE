@@ -5,13 +5,27 @@ import { TestCaseRepository } from "../repositories/testcase.repository";
 import { SubmissionRepository } from "../repositories/submission.repository";
 import PointsTransaction from "../models/points-transaction.model";
 import { toFrontendProblem } from "../utils/dto";
-import { executeTestCases } from "../utils/createTest";
+import { executeTestCases, executeDirectSubmission } from "../utils/createTest";
 import { NotFoundError, BadRequestError } from "../errors/AppError";
 import cacheService from "./cache.service";
 import { addSubmissionJob } from "./queue.service";
 import { processSubmission } from "../workers/submission.worker";
 import { logger } from "../utils/logger";
 import { runInTransaction } from "../utils/dbTransaction";
+
+// Judge0 language ID lookup (mirrors createTest.ts)
+const JUDGE0_LANG_IDS: Record<string, number> = {
+    cpp: 54,
+    c: 50,
+    java: 62,
+    python: 71,
+    javascript: 63,
+    typescript: 74,
+    go: 60,
+    rust: 73,
+    csharp: 51,
+    kotlin: 78,
+};
 
 export function toDateStr(d: Date): string {
     return d.toISOString().split("T")[0];
@@ -119,7 +133,7 @@ export class ProblemService {
         const cacheKey = "problems:global";
         let problems: any[] | null = await cacheService.get(cacheKey);
         if (!problems) {
-            const projection = "problemId title slug difficulty tags acceptanceRate submissionCount successCount status description constraints inputFormat outputFormat hints editorial examples starterCode functionName";
+            const projection = "problemId title slug difficulty tags acceptanceRate submissionCount successCount status description constraints inputFormat outputFormat hints editorial examples starterCode";
             problems = await ProblemRepository.getAll({ isDeleted: false, status: "published" }, projection, { problemId: 1 });
             await cacheService.set(cacheKey, problems, 3600);
         }
@@ -251,8 +265,8 @@ export class ProblemService {
         };
     }
 
-    static async runCode(slug: string, runData: { code: string; language: string }) {
-        const { code, language } = runData;
+    static async runCode(slug: string, runData: { code: string; language: string; customInput?: string }) {
+        const { code, language, customInput } = runData;
 
         if (!code || typeof code !== "string" || code.trim().length === 0) {
             throw new BadRequestError("Submitted code cannot be empty.");
@@ -261,6 +275,74 @@ export class ProblemService {
             throw new BadRequestError("Submitted code exceeds maximum size limit (64 KB).");
         }
 
+        const clientLang = (language || "javascript").toLowerCase();
+
+        // ─────────────────────────────────────────────────────────────────────
+        // CUSTOM INPUT PATH: Run code against user-supplied stdin.
+        // The problem statement is NEVER sent to the compiler.
+        // This is the primary "Run" mode (like CodeChef custom input).
+        // ─────────────────────────────────────────────────────────────────────
+        if (typeof customInput === "string") {
+            const langId = JUDGE0_LANG_IDS[clientLang];
+            if (!langId) {
+                throw new BadRequestError(`Unsupported language: ${clientLang}`);
+            }
+
+            try {
+                const result = await executeDirectSubmission(code, langId, customInput);
+
+                // Determine success / failure from Judge0 status id
+                const statusId = result.status?.id ?? 0;
+                const isAccepted = statusId === 3;
+                const hasCompileError = statusId === 6;
+                const hasTLE = statusId === 5;
+
+                const stdout = (result.stdout || "").trim();
+                const stderr = (result.stderr || result.compile_output || "").trim();
+
+                let statusLabel = "Accepted";
+                if (!isAccepted) {
+                    if (hasCompileError) statusLabel = "Compilation Error";
+                    else if (hasTLE) statusLabel = "Time Limit Exceeded";
+                    else if (statusId >= 7 && statusId <= 12) statusLabel = "Runtime Error";
+                    else statusLabel = result.status?.description || "Runtime Error";
+                }
+
+                return {
+                    success: isAccepted,
+                    status: statusLabel,
+                    runtime: result.time ? Math.round(parseFloat(result.time) * 1000) : 0,
+                    memory: result.memory || 0,
+                    stdout: stdout || null,
+                    stderr: stderr || null,
+                    error_message: (!isAccepted && stderr) ? stderr : null,
+                    input: customInput,
+                    user_output: stdout || null,
+                    expected_output: null, // not applicable for custom input run
+                    results: [],
+                };
+            } catch (err: any) {
+                const msg = err?.response?.data?.message || err?.message || "Execution engine unreachable.";
+                return {
+                    success: false,
+                    status: "Runtime Error",
+                    runtime: 0,
+                    memory: 0,
+                    stdout: null,
+                    stderr: msg,
+                    error_message: msg,
+                    input: customInput,
+                    user_output: null,
+                    expected_output: null,
+                    results: [],
+                };
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // FALLBACK PATH: Run against visible (sample) test cases from DB.
+        // Used when no custom input is provided.
+        // ─────────────────────────────────────────────────────────────────────
         const prob = await ProblemRepository.findBySlugOrId(slug, { isDeleted: false });
         if (!prob) {
             throw new NotFoundError("Problem not found");
@@ -272,17 +354,31 @@ export class ProblemService {
             .sort((a, b) => a.executionOrder - b.executionOrder);
 
         if (!sortedVisible.length) {
-            throw new BadRequestError("No visible test cases defined for this problem.");
+            // No visible test cases — return informative message instead of throwing
+            return {
+                success: false,
+                status: "No Test Cases",
+                runtime: 0,
+                memory: 0,
+                stdout: null,
+                stderr: null,
+                error_message: "No sample test cases available. Please use custom input.",
+                input: null,
+                user_output: null,
+                expected_output: null,
+                results: [],
+            };
         }
 
-        const clientLang = language || "javascript";
         const report = await executeTestCases(prob, sortedVisible, code, clientLang);
 
         return {
-            success: true,
+            success: report.status === "Accepted",
             status: report.status,
             runtime: report.runtime,
             memory: report.memory,
+            stdout: report.results[0]?.user_output || null,
+            stderr: null,
             error_message: report.results.find(r => r.error_message)?.error_message || null,
             input: report.results[0]?.input || null,
             expected_output: report.results[0]?.expected_output || null,

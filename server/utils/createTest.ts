@@ -1,4 +1,4 @@
-import axios from "axios";
+﻿import axios from "axios";
 import vm from "vm";
 import { IProblem } from "../models/problem.model";
 import { ITestCase } from "../models/testcase.model";
@@ -25,6 +25,59 @@ export interface JudgeReport {
 
 const rawJudge0Url = process.env.JUDGE0_URL || (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:2358");
 const JUDGE0_URL = rawJudge0Url.replace(/\/$/, "");
+
+const JUDGE0_LANG_IDS: Record<string, number> = {
+    cpp: 54,        // C++ (GCC 9.2.0)
+    c: 50,          // C (GCC 9.2.0)
+    java: 62,       // Java (OpenJDK 13.0.1)
+    python: 71,     // Python (3.8.1)
+    javascript: 63, // JavaScript (Node.js 12.14.0)
+    typescript: 74, // TypeScript (3.7.4)
+    go: 60,         // Go (1.13.5)
+    rust: 73,       // Rust (1.40.0)
+    csharp: 51,     // C# (Mono 6.6.0.161)
+    kotlin: 78,     // Kotlin (1.3.70)
+};
+
+interface CircuitBreakerState {
+    failures: number;
+    lastFailureTime: number;
+    isOpen: boolean;
+}
+
+const circuitBreaker: CircuitBreakerState = {
+    failures: 0,
+    lastFailureTime: 0,
+    isOpen: false,
+};
+
+const FAILURE_THRESHOLD = 5;
+const RESET_TIMEOUT_MS = 30000;
+
+function isCircuitOpen(): boolean {
+    if (!circuitBreaker.isOpen) return false;
+    if (Date.now() - circuitBreaker.lastFailureTime > RESET_TIMEOUT_MS) {
+        circuitBreaker.isOpen = false;
+        circuitBreaker.failures = 0;
+        return false;
+    }
+    return true;
+}
+
+function recordSuccess() {
+    circuitBreaker.failures = 0;
+    circuitBreaker.isOpen = false;
+}
+
+function recordFailure() {
+    circuitBreaker.failures += 1;
+    circuitBreaker.lastFailureTime = Date.now();
+    if (circuitBreaker.failures >= FAILURE_THRESHOLD) {
+        circuitBreaker.isOpen = true;
+        console.error(`[Circuit Breaker] Judge0 circuit OPENED after ${FAILURE_THRESHOLD} consecutive failures.`);
+    }
+}
+
 
 export function formatNormalizedInput(rawInput: string): string {
     if (!rawInput) return "";
@@ -78,35 +131,6 @@ export function formatNormalizedInput(rawInput: string): string {
     return cleanInput;
 }
 
-function parseInputArgs(rawInput: string): any[] {
-    const trimmed = (rawInput || "").trim();
-    if (!trimmed) return [];
-
-    try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) return parsed;
-        return [parsed];
-    } catch {
-        const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
-        const args: any[] = [];
-        for (const line of lines) {
-            try {
-                args.push(JSON.parse(line));
-            } catch {
-                const tokens = line.split(/\s+/);
-                if (tokens.length > 1 && tokens.every(t => !isNaN(Number(t)))) {
-                    args.push(tokens.map(Number));
-                } else if (tokens.length === 1 && !isNaN(Number(tokens[0]))) {
-                    args.push(Number(tokens[0]));
-                } else {
-                    args.push(line);
-                }
-            }
-        }
-        return args;
-    }
-}
-
 function executeLocalFallback(
     userCode: string,
     problem: IProblem,
@@ -114,7 +138,6 @@ function executeLocalFallback(
     language: string = "javascript"
 ): TestCaseExecutionResult {
     const lang = (language || "javascript").toLowerCase();
-    const safeFuncName = (problem.functionName || "twoSum").replace(/[^a-zA-Z0-9_$]/g, "");
     const startTime = Date.now();
 
     // ─────────────────────────────────────────────
@@ -127,7 +150,7 @@ function executeLocalFallback(
             const path = require("path");
             const os = require("os");
 
-            const fullCppCode = prepareSourceCode(userCode, problem, language);
+            const fullCppCode = userCode;
             const baseTempDir = path.join(process.cwd(), "scratch");
             if (!fs.existsSync(baseTempDir)) {
                 fs.mkdirSync(baseTempDir, { recursive: true });
@@ -235,7 +258,7 @@ function executeLocalFallback(
             const path = require("path");
             const os = require("os");
 
-            const fullPyCode = prepareSourceCode(userCode, problem, language);
+            const fullPyCode = userCode;
             const baseTempDir = path.join(process.cwd(), "scratch");
             if (!fs.existsSync(baseTempDir)) {
                 fs.mkdirSync(baseTempDir, { recursive: true });
@@ -319,35 +342,50 @@ function executeLocalFallback(
             status: "Compilation Error",
             runtime: Date.now() - startTime,
             memory: 0,
-            error_message: `Local execution fallback does not support ${language}. Please start Judge0 sandbox container.`,
+            error_message: "Local execution fallback does not support this language.",
         };
     }
 
     try {
-        const sandbox: any = {
-            console: { log: () => {}, error: () => {} },
-            Map, Set, Array, Math, Object, String, Number, Boolean, RegExp, parseInt, parseFloat,
-        };
+        const { execSync } = require("child_process");
+        const fs = require("fs");
+        const path = require("path");
 
-        const script = new vm.Script(`${userCode}\n;globalThis.userFn = (typeof ${safeFuncName} !== 'undefined' ? ${safeFuncName} : (typeof Solution !== 'undefined' && Solution.prototype?.${safeFuncName} ? new Solution().${safeFuncName} : null));`);
-        const context = vm.createContext(sandbox);
-        script.runInContext(context, { timeout: 2000 });
+        const baseTempDir = path.join(process.cwd(), "scratch");
+        if (!fs.existsSync(baseTempDir)) {
+            fs.mkdirSync(baseTempDir, { recursive: true });
+        }
+        const tempDir = fs.mkdtempSync(path.join(baseTempDir, "fc_js_"));
+        const jsFile = path.join(tempDir, "script.js");
 
-        if (typeof sandbox.userFn !== "function") {
+        fs.writeFileSync(jsFile, userCode);
+
+        let userOutput = "";
+        try {
+            userOutput = execSync('node "' + jsFile + '"', {
+                input: testCase.input,
+                timeout: 4000,
+                maxBuffer: 1024 * 1024,
+            }).toString().trim();
+        } catch (execErr: any) {
+            const stderr = execErr.stderr ? execErr.stderr.toString() : execErr.message;
+            fs.rmSync(tempDir, { recursive: true, force: true });
             return {
                 testCaseId: testCase._id ? testCase._id.toString() : String(testCase.executionOrder),
                 isHidden: testCase.isHidden,
-                status: "Compilation Error",
+                status: "Runtime Error",
                 runtime: Date.now() - startTime,
-                memory: 1024,
-                error_message: `Function '${safeFuncName}' is not defined.`,
+                memory: 0,
+                error_message: stderr || "Runtime Error during JavaScript execution.",
+                input: testCase.isHidden ? undefined : testCase.input,
+                expected_output: testCase.expectedOutput,
+                user_output: "",
             };
         }
 
-        const args = parseInputArgs(testCase.input);
-        const rawRes = sandbox.userFn(...args);
+        fs.rmSync(tempDir, { recursive: true, force: true });
+
         const runtime = Date.now() - startTime;
-        const userOutput = JSON.stringify(rawRes);
         const expectedOutput = (testCase.expectedOutput || "").trim();
 
         let isMatch = userOutput === expectedOutput;
@@ -385,65 +423,9 @@ function executeLocalFallback(
             memory: 0,
             error_message: err.message || String(err),
             input: testCase.isHidden ? undefined : testCase.input,
-            expected_output: testCase.isHidden ? undefined : testCase.expectedOutput,
+            expected_output: testCase.expectedOutput,
             user_output: "",
         };
-    }
-}
-
-const JUDGE0_LANG_IDS: Record<string, number> = {
-    cpp: 54,        // C++ (GCC 9.2.0)
-    c: 50,          // C (GCC 9.2.0)
-    java: 62,       // Java (OpenJDK 13.0.1)
-    python: 71,     // Python (3.8.1)
-    javascript: 63, // JavaScript (Node.js 12.14.0)
-    typescript: 74, // TypeScript (3.7.4)
-    go: 60,         // Go (1.13.5)
-    rust: 73,       // Rust (1.40.0)
-    csharp: 51,     // C# (Mono 6.6.0.161)
-    kotlin: 78,     // Kotlin (1.3.70)
-};
-
-// ─────────────────────────────────────────────
-// Circuit Breaker State & Fallback Logic
-// ─────────────────────────────────────────────
-interface CircuitBreakerState {
-    failures: number;
-    lastFailureTime: number;
-    isOpen: boolean;
-}
-
-const circuitBreaker: CircuitBreakerState = {
-    failures: 0,
-    lastFailureTime: 0,
-    isOpen: false,
-};
-
-const FAILURE_THRESHOLD = 5;
-const RESET_TIMEOUT_MS = 30000;
-
-function isCircuitOpen(): boolean {
-    if (!circuitBreaker.isOpen) return false;
-    if (Date.now() - circuitBreaker.lastFailureTime > RESET_TIMEOUT_MS) {
-        // Half-open: trial request
-        circuitBreaker.isOpen = false;
-        circuitBreaker.failures = 0;
-        return false;
-    }
-    return true;
-}
-
-function recordSuccess() {
-    circuitBreaker.failures = 0;
-    circuitBreaker.isOpen = false;
-}
-
-function recordFailure() {
-    circuitBreaker.failures += 1;
-    circuitBreaker.lastFailureTime = Date.now();
-    if (circuitBreaker.failures >= FAILURE_THRESHOLD) {
-        circuitBreaker.isOpen = true;
-        console.error(`[Circuit Breaker] Judge0 circuit OPENED after ${FAILURE_THRESHOLD} consecutive failures.`);
     }
 }
 
@@ -460,295 +442,11 @@ function mapJudge0Status(statusId: number): TestCaseExecutionResult["status"] {
         case 10:
         case 11:
         case 12: return "Runtime Error";
-        case 13: return "Runtime Error"; // Internal Error
-        case 14: return "Wrong Answer"; // Executed but didn't match expected if assertions run
+        case 13: return "Runtime Error";
+        case 14: return "Wrong Answer";
         case 15: return "Output Limit Exceeded";
         default: return "Runtime Error";
     }
-}
-
-function prepareSourceCode(userCode: string, problem: IProblem, language: string): string {
-    const lang = language.toLowerCase();
-    const driver = problem.driverCode && problem.driverCode instanceof Map
-        ? problem.driverCode.get(lang)
-        : (problem.driverCode as any)?.[lang];
-
-    if (driver) {
-        return driver.replace(/\/\/\s*\{\{\s*USER_CODE\s*\}\}/g, userCode)
-                     .replace(/\/\*\s*\{\{\s*USER_CODE\s*\}\}\s*\*\//g, userCode)
-                     .replace(/\{\{\s*USER_CODE\s*\}\}/g, userCode);
-    }
-
-    const safeFuncName = (problem.functionName || "").replace(/[^a-zA-Z0-9_$]/g, "");
-
-    if (safeFuncName || true) {
-        if (lang === "javascript") {
-            return `
-${userCode}
-
-const fs = require('fs');
-const input = fs.readFileSync(0, 'utf-8').trim();
-if (input) {
-    let args;
-    try {
-        args = JSON.parse(input);
-        if (!Array.isArray(args)) args = [args];
-    } catch (e) {
-        const lines = input.split('\\n').map(l => l.trim()).filter(Boolean);
-        args = lines.map(line => {
-            try { return JSON.parse(line); }
-            catch (err) {
-                const tokens = line.split(/\\s+/);
-                if (tokens.length > 1 && tokens.every(t => !isNaN(Number(t)))) {
-                    return tokens.map(Number);
-                } else if (tokens.length === 1 && !isNaN(Number(tokens[0]))) {
-                    return Number(tokens[0]);
-                }
-                return line;
-            }
-        });
-    }
-    try {
-        const targetName = "${safeFuncName}";
-        let fn = (typeof globalThis[targetName] === 'function' ? globalThis[targetName] : null);
-        if (!fn && typeof solution === 'function') fn = solution;
-        if (!fn && typeof twoSum === 'function') fn = twoSum;
-        if (!fn && typeof maxArea === 'function') fn = maxArea;
-        if (!fn && typeof Solution === 'function' && Solution.prototype) {
-            const inst = new Solution();
-            const keys = Object.getOwnPropertyNames(Solution.prototype).filter(k => k !== 'constructor');
-            if (keys.length > 0) fn = inst[keys[0]].bind(inst);
-        }
-        if (!fn) {
-            const possibleFns = Object.keys(globalThis).filter(k => typeof globalThis[k] === 'function' && !['fetch','eval','setTimeout','setInterval','clearTimeout','clearInterval'].includes(k));
-            if (possibleFns.length > 0) fn = globalThis[possibleFns[possibleFns.length - 1]];
-        }
-
-        if (fn) {
-            let result;
-            try {
-                result = fn(...args);
-            } catch (err) {
-                if (args.length > 1) {
-                    const arrArg = args.find(a => Array.isArray(a));
-                    result = fn(arrArg !== undefined ? arrArg : args[args.length - 1]);
-                } else {
-                    throw err;
-                }
-            }
-            console.log(JSON.stringify(result !== undefined ? result : ""));
-        } else {
-            console.log(JSON.stringify(args[args.length - 1] || ""));
-        }
-    } catch (e) {
-        console.error("Runtime Error:", e.message);
-        process.exit(1);
-    }
-}
-`;
-        }
-        if (lang === "typescript") {
-            return `
-${userCode}
-
-import * as fs from 'fs';
-const input = fs.readFileSync(0, 'utf-8').trim();
-if (input) {
-    let args: any[];
-    try {
-        args = JSON.parse(input);
-        if (!Array.isArray(args)) args = [args];
-    } catch (e) {
-        const lines = input.split('\\n').map(l => l.trim()).filter(Boolean);
-        args = lines.map(line => {
-            try { return JSON.parse(line); }
-            catch (err) {
-                const tokens = line.split(/\\s+/);
-                if (tokens.length > 1 && tokens.every(t => !isNaN(Number(t)))) {
-                    return tokens.map(Number);
-                } else if (tokens.length === 1 && !isNaN(Number(tokens[0]))) {
-                    return Number(tokens[0]);
-                }
-                return line;
-            }
-        });
-    }
-    try {
-        const targetName = "${safeFuncName}";
-        let fn: any = (typeof (globalThis as any)[targetName] === 'function' ? (globalThis as any)[targetName] : null);
-        if (!fn && typeof (globalThis as any).solution === 'function') fn = (globalThis as any).solution;
-        if (!fn && typeof (globalThis as any).twoSum === 'function') fn = (globalThis as any).twoSum;
-        if (!fn && typeof (globalThis as any).maxArea === 'function') fn = (globalThis as any).maxArea;
-
-        if (fn) {
-            const result = fn(...args);
-            console.log(JSON.stringify(result !== undefined ? result : ""));
-        } else {
-            console.log(JSON.stringify(args[args.length - 1] || ""));
-        }
-    } catch (e: any) {
-        console.error("Runtime Error:", e.message);
-        process.exit(1);
-    }
-}
-`;
-        }
-        if (lang === "python") {
-            return `
-${userCode}
-
-import sys
-import json
-import io
-
-input_data = sys.stdin.read().strip()
-lines = [l.strip() for l in input_data.splitlines() if l.strip()]
-
-# Redirect sys.stdin so code calling input() reads lines safely
-sys.stdin = io.StringIO(input_data)
-
-func = None
-target_name = '${safeFuncName}'
-
-if 'Solution' in globals():
-    try:
-        sol = Solution()
-        methods = [m for m in dir(sol) if not m.startswith('_')]
-        if target_name in methods:
-            func = getattr(sol, target_name)
-        elif methods:
-            func = getattr(sol, methods[0])
-    except Exception:
-        pass
-
-if not func:
-    if target_name in globals() and callable(globals()[target_name]):
-        func = globals()[target_name]
-    else:
-        candidates = [v for k, v in globals().items() if callable(v) and not k.startswith('_') and k not in ('sys', 'json', 'io', 'Solution')]
-        if candidates:
-            func = candidates[-1]
-
-args = []
-try:
-    parsed = json.loads(input_data)
-    args = parsed if isinstance(parsed, list) else [parsed]
-except Exception:
-    for line in lines:
-        if '=' in line and not line.startswith('{') and not line.startswith('['):
-            val_part = line.split('=', 1)[1].strip()
-            try:
-                args.append(json.loads(val_part))
-            except Exception:
-                args.append(val_part.strip('"\\\''))
-        else:
-            try:
-                args.append(json.loads(line))
-            except Exception:
-                tokens = line.split()
-                if len(tokens) > 1 and all(t.lstrip('-').isdigit() for t in tokens):
-                    args.append([int(t) for t in tokens])
-                elif len(tokens) == 1 and tokens[0].lstrip('-').isdigit():
-                    args.append(int(tokens[0]))
-                else:
-                    args.append(line.strip('"\\\''))
-
-try:
-    if func:
-        import inspect
-        sig = inspect.signature(func)
-        param_count = len(sig.parameters)
-        if param_count == 0:
-            res = func()
-        else:
-            call_args = list(args)
-            while len(call_args) < param_count:
-                call_args.append("")
-            if len(call_args) > param_count:
-                call_args = call_args[:param_count]
-            res = func(*call_args)
-        if res is not None:
-            print(json.dumps(res))
-    else:
-        print(json.dumps(args[-1] if args else ""))
-except Exception as e:
-    print(f"Runtime Error: {e}", file=sys.stderr)
-    sys.exit(1)
-`;
-        }
-        if (lang === "cpp" || lang === "c") {
-            if (!userCode.includes("int main")) {
-                const funcName = safeFuncName || "solution";
-                let callExpr = "";
-                if (userCode.includes("class Solution")) {
-                    callExpr = `Solution sol;\n    vector<int> res = sol.${funcName}(nums, target);`;
-                } else if (userCode.includes("twoSum")) {
-                    callExpr = `vector<int> res = twoSum(nums, target);`;
-                } else {
-                    callExpr = `vector<int> res = solution(nums, target);`;
-                }
-
-                return `
-${userCode}
-
-#include <iostream>
-#include <vector>
-#include <string>
-#include <sstream>
-#include <algorithm>
-#include <cctype>
-
-using namespace std;
-
-static string trimCppStr(const string& s) {
-    auto start = s.find_first_not_of(" \\t\\n\\r\\[\\]");
-    if (start == string::npos) return "";
-    auto end = s.find_last_not_of(" \\t\\n\\r\\[\\]");
-    return s.substr(start, end - start + 1);
-}
-
-int main() {
-    string fullInput = "";
-    string line;
-    while (getline(cin, line)) {
-        fullInput += line + " ";
-    }
-
-    vector<int> nums;
-    int target = 0;
-
-    size_t openB = fullInput.find('[');
-    size_t closeB = fullInput.find(']');
-    if (openB != string::npos && closeB != string::npos && closeB > openB) {
-        string numsStr = fullInput.substr(openB + 1, closeB - openB - 1);
-        stringstream ss(numsStr);
-        string val;
-        while (getline(ss, val, ',')) {
-            string t = trimCppStr(val);
-            if (!t.empty()) nums.push_back(stoi(t));
-        }
-        size_t comma = fullInput.find(',', closeB);
-        if (comma != string::npos) {
-            string tStr = trimCppStr(fullInput.substr(comma + 1));
-            if (!tStr.empty()) target = stoi(tStr);
-        }
-    }
-
-    ${callExpr}
-
-    cout << "[";
-    for (size_t i = 0; i < res.size(); i++) {
-        cout << res[i] << (i + 1 < res.size() ? "," : "");
-    }
-    cout << "]" << endl;
-    return 0;
-}
-`;
-            }
-        }
-    }
-
-    return userCode;
 }
 
 /**
@@ -950,7 +648,7 @@ export async function executeTestCases(
         };
     }
 
-    const sourceCode = prepareSourceCode(userCode, problem, language);
+    const sourceCode = userCode;
 
     // Concurrency-limited execution: cap at 10 simultaneous Judge0 calls.
     // Promise.all() on 50+ test cases overwhelms the Cloudflare tunnel and causes timeouts.

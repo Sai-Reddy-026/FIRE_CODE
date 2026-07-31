@@ -79,12 +79,14 @@ export class ProblemController {
 
     static async runCode(req: AuthRequest, res: Response): Promise<void> {
         const { name } = req.params;
-        const { code } = req.body;
+        const { code, language, customInput } = req.body;
         if (code && typeof code === "string" && code.length > 50000) {
             res.status(400).json({ success: false, message: "Code exceeds maximum allowed size (50,000 characters)." });
             return;
         }
-        const result = await ProblemService.runCode(name, req.body);
+        // IMPORTANT: Only code, language, and customInput are forwarded.
+        // The problem statement is NEVER sent to the execution engine.
+        const result = await ProblemService.runCode(name, { code, language, customInput });
         res.status(200).json(result);
     }
 
